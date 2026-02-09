@@ -13,6 +13,13 @@ export interface ChatworkMessage {
   update_time: number;
 }
 
+export interface FetchResult {
+  messages: ChatworkMessage[];
+  warnings: string[];
+  isFirstRun: boolean;
+  apiMessageCount: number;
+}
+
 export class ChatworkClient {
   private apiToken: string;
   private baseUrl = 'https://api.chatwork.com/v2';
@@ -65,7 +72,9 @@ export class ChatworkClient {
    * 初回: force=1で最新100件を取得してキャッシュ
    * 2回目以降: force=0で差分取得してキャッシュにマージ
    */
-  async getAllMessages(roomId: string, maxMessages: number = 500): Promise<ChatworkMessage[]> {
+  async getAllMessages(roomId: string, maxMessages: number = 500): Promise<FetchResult> {
+    const warnings: string[] = [];
+
     // キャッシュの統計情報を表示
     await this.cacheManager.showStats(roomId);
 
@@ -83,8 +92,24 @@ export class ChatworkClient {
     // 初回はforce=1、2回目以降はforce=0で差分取得
     const force = isFirstRun ? 1 : 0;
     const newMessages = await this.getMessages(roomId, force);
+    const apiMessageCount = newMessages.length;
 
-    console.log(`[Chatwork] API取得: ${newMessages.length}件`);
+    console.log(`[Chatwork] API取得: ${apiMessageCount}件`);
+
+    // 100件制限の警告チェック
+    if (apiMessageCount >= 100) {
+      if (isFirstRun) {
+        warnings.push(
+          '⚠️ 初回取得で100件の上限に達しました。これより古いメッセージは取得できません。' +
+          '定期的に実行することで、今後の新規メッセージを蓄積できます。'
+        );
+      } else {
+        warnings.push(
+          '⚠️ 差分取得で100件の上限に達しました。前回実行から期間が空いたため、' +
+          '一部のメッセージを取りこぼしている可能性があります。'
+        );
+      }
+    }
 
     // マージ
     let allMessages: ChatworkMessage[];
@@ -107,7 +132,13 @@ export class ChatworkClient {
     }
 
     console.log(`[Chatwork] 合計: ${allMessages.length}件`);
-    return allMessages;
+
+    return {
+      messages: allMessages,
+      warnings,
+      isFirstRun,
+      apiMessageCount
+    };
   }
 
   /**

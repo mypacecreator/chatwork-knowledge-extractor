@@ -27,12 +27,19 @@ async function main() {
     process.exit(1);
   }
 
+  // 警告を収集
+  const allWarnings: string[] = [];
+
   try {
     // Step 1: Chatworkからメッセージ取得
     console.log('[1/4] Chatworkメッセージ取得中...\n');
     const chatworkClient = new ChatworkClient(chatworkToken);
-    let messages = await chatworkClient.getAllMessages(roomId, maxMessages);
-    
+    const fetchResult = await chatworkClient.getAllMessages(roomId, maxMessages);
+    let messages = fetchResult.messages;
+
+    // 警告を収集
+    allWarnings.push(...fetchResult.warnings);
+
     console.log(`取得完了: ${messages.length}件\n`);
 
     // 期間フィルタ
@@ -95,6 +102,15 @@ async function main() {
     console.log('\nカテゴリ別内訳:');
     for (const [category, count] of Object.entries(categoryCount)) {
       console.log(`  ${category}: ${count}件`);
+    }
+
+    // 警告があれば表示
+    if (allWarnings.length > 0) {
+      console.log('\n=== 警告 ===\n');
+      for (const warning of allWarnings) {
+        console.log(warning);
+        console.log('');
+      }
     }
 
   } catch (error) {
