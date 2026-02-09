@@ -96,7 +96,7 @@ async function main() {
       .replace(/:/g, '-')
       .replace(/\..+/, '')
       .replace('T', '_');
-    const baseFilename = `knowledge_${timestamp}`;
+    const baseFilename = `knowledge_${roomId}_${timestamp}`;
 
     // フォーマットオプション
     const formatOptions = {
