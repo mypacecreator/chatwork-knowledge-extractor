@@ -15,6 +15,9 @@ dist/
 # Output files
 output/
 
+# Cache (runtime data)
+/cache/
+
 # IDE
 .vscode/
 .idea/

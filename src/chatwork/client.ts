@@ -1,4 +1,5 @@
 import fetch from 'node-fetch';
+import { MessageCacheManager } from '../cache/messages.js';
 
 export interface ChatworkMessage {
   message_id: string;
@@ -15,9 +16,11 @@ export interface ChatworkMessage {
 export class ChatworkClient {
   private apiToken: string;
   private baseUrl = 'https://api.chatwork.com/v2';
+  private cacheManager: MessageCacheManager;
 
-  constructor(apiToken: string) {
+  constructor(apiToken: string, cacheDir: string = './cache') {
     this.apiToken = apiToken;
+    this.cacheManager = new MessageCacheManager(cacheDir);
   }
 
   /**
@@ -26,7 +29,7 @@ export class ChatworkClient {
    */
   async getMessages(roomId: string, force: 0 | 1 = 1): Promise<ChatworkMessage[]> {
     const url = `${this.baseUrl}/rooms/${roomId}/messages?force=${force}`;
-    
+
     const response = await fetch(url, {
       method: 'GET',
       headers: {
@@ -41,44 +44,69 @@ export class ChatworkClient {
     console.log(`[Chatwork API] レート制限: ${remaining}/${limit}`);
 
     if (!response.ok) {
+      // 204 No Content は空配列を返す
+      if (response.status === 204) {
+        return [];
+      }
       throw new Error(`Chatwork API Error: ${response.status} ${response.statusText}`);
     }
 
-    return await response.json() as ChatworkMessage[];
+    // 204の場合はjsonがないので空配列
+    const text = await response.text();
+    if (!text) {
+      return [];
+    }
+
+    return JSON.parse(text) as ChatworkMessage[];
   }
 
   /**
-   * 複数ページにわたってメッセージを取得
-   * Chatwork APIは100件ずつしか取得できないため、
-   * force=0で差分を繰り返し取得することでページネーションを実現
+   * キャッシュを活用してメッセージを取得
+   * 初回: force=1で最新100件を取得してキャッシュ
+   * 2回目以降: force=0で差分取得してキャッシュにマージ
    */
   async getAllMessages(roomId: string, maxMessages: number = 500): Promise<ChatworkMessage[]> {
-    const allMessages: ChatworkMessage[] = [];
-    let hasMore = true;
-    let iteration = 0;
-    const maxIterations = Math.ceil(maxMessages / 100);
+    // キャッシュの統計情報を表示
+    await this.cacheManager.showStats(roomId);
 
-    console.log(`[Chatwork] メッセージ取得開始（最大${maxMessages}件）`);
+    // 既存キャッシュを読み込み
+    const existingCache = await this.cacheManager.load(roomId);
+    const isFirstRun = !existingCache;
 
-    // 最初は force=1 で最新100件を取得
-    const firstBatch = await this.getMessages(roomId, 1);
-    allMessages.push(...firstBatch);
-    console.log(`[Chatwork] 取得: ${firstBatch.length}件（累計: ${allMessages.length}件）`);
-
-    if (firstBatch.length < 100) {
-      console.log('[Chatwork] 全メッセージ取得完了');
-      return allMessages;
+    if (isFirstRun) {
+      console.log(`[Chatwork] 初回実行: 最新100件を取得します`);
+    } else {
+      console.log(`[Chatwork] 差分取得: キャッシュに${existingCache.messages.length}件あり`);
     }
 
-    // レート制限対策: 10秒あたり10回制限があるため、少し待機
-    await this.sleep(1000);
+    // メッセージ取得
+    // 初回はforce=1、2回目以降はforce=0で差分取得
+    const force = isFirstRun ? 1 : 0;
+    const newMessages = await this.getMessages(roomId, force);
 
-    // 2回目以降は force=0 で差分取得
-    // ただし、Chatwork APIの仕様上、これ以上古いメッセージは
-    // 別の方法（日付指定など）が必要
-    // 現状は最新100件のみ取得する実装とする
-    
-    console.log('[Chatwork] メッセージ取得完了');
+    console.log(`[Chatwork] API取得: ${newMessages.length}件`);
+
+    // マージ
+    let allMessages: ChatworkMessage[];
+    if (isFirstRun) {
+      allMessages = newMessages;
+    } else {
+      allMessages = this.cacheManager.mergeMessages(
+        existingCache.messages,
+        newMessages
+      );
+    }
+
+    // キャッシュを保存
+    await this.cacheManager.save(roomId, allMessages);
+
+    // maxMessagesで制限
+    if (allMessages.length > maxMessages) {
+      console.log(`[Chatwork] ${maxMessages}件に制限`);
+      allMessages = allMessages.slice(0, maxMessages);
+    }
+
+    console.log(`[Chatwork] 合計: ${allMessages.length}件`);
     return allMessages;
   }
 

@@ -41,7 +41,7 @@ export class ClaudeAnalyzer {
     }));
 
     // Batch作成
-    const batch = await this.client.messages.batches.create({
+    const batch = await this.client.beta.messages.batches.create({
       requests
     });
 
@@ -52,7 +52,7 @@ export class ClaudeAnalyzer {
     const completedBatch = await this.waitForBatchCompletion(batch.id);
     
     // 結果を取得
-    const results = await this.client.messages.batches.results(completedBatch.id);
+    const results = await this.client.beta.messages.batches.results(completedBatch.id);
     
     // 結果をパース
     const analyzed: AnalyzedMessage[] = [];
@@ -61,10 +61,18 @@ export class ClaudeAnalyzer {
         const content = result.result.message.content[0];
         if (content.type === 'text') {
           try {
-            const parsed = JSON.parse(content.text);
+            // マークダウンのコードブロックからJSONを抽出
+            let jsonText = content.text.trim();
+            const jsonMatch = jsonText.match(/```(?:json)?\s*([\s\S]*?)```/);
+            if (jsonMatch) {
+              jsonText = jsonMatch[1].trim();
+            }
+
+            const parsed = JSON.parse(jsonText);
             analyzed.push(parsed);
           } catch (e) {
             console.error(`[Claude] JSON parse error for ${result.custom_id}`);
+            console.error(`[Claude] Raw response: ${content.text.substring(0, 500)}`);
           }
         }
       } else {
@@ -79,13 +87,14 @@ export class ClaudeAnalyzer {
   /**
    * Batch完了を待機
    */
-  private async waitForBatchCompletion(batchId: string): Promise<Anthropic.Messages.MessageBatch> {
-    let batch = await this.client.messages.batches.retrieve(batchId);
-    
+  private async waitForBatchCompletion(batchId: string): Promise<Anthropic.Beta.Messages.BetaMessageBatch> {
+    let batch = await this.client.beta.messages.batches.retrieve(batchId);
+    const totalRequests = batch.request_counts.processing + batch.request_counts.succeeded + batch.request_counts.errored + batch.request_counts.canceled + batch.request_counts.expired;
+
     while (batch.processing_status === 'in_progress') {
-      console.log(`[Claude] 処理中... (${batch.request_counts.processing}/${batch.request_counts.total})`);
+      console.log(`[Claude] 処理中... (${batch.request_counts.processing}/${totalRequests})`);
       await this.sleep(10000); // 10秒ごとにチェック
-      batch = await this.client.messages.batches.retrieve(batchId);
+      batch = await this.client.beta.messages.batches.retrieve(batchId);
     }
 
     console.log(`[Claude] Batch完了: ${batch.processing_status}`);
