@@ -3,17 +3,22 @@ import { writeFile } from 'fs/promises';
 import { mkdir } from 'fs/promises';
 import { dirname } from 'path';
 
+export interface FormatOptions {
+  roomName?: string;
+  roomId?: string;
+}
+
 export class MarkdownFormatter {
   /**
    * 分析結果をMarkdown形式で出力
    */
-  async format(messages: AnalyzedMessage[], outputPath: string): Promise<void> {
+  async format(messages: AnalyzedMessage[], outputPath: string, options: FormatOptions = {}): Promise<void> {
     // カテゴリ別にグループ化
     const grouped = this.groupByCategory(messages);
-    
+
     // Markdownを生成
-    let markdown = this.generateHeader();
-    
+    let markdown = this.generateHeader(options);
+
     for (const [category, items] of Object.entries(grouped)) {
       markdown += this.generateCategorySection(category, items);
     }
@@ -51,11 +56,15 @@ export class MarkdownFormatter {
   /**
    * ヘッダー生成
    */
-  private generateHeader(): string {
+  private generateHeader(options: FormatOptions): string {
     const now = new Date();
+    const roomInfo = options.roomName
+      ? `対象ルーム: ${options.roomName}${options.roomId ? ` (ID: ${options.roomId})` : ''}\n`
+      : '';
+
     return `# Chatwork知見まとめ
 
-生成日時: ${now.toLocaleString('ja-JP')}
+${roomInfo}生成日時: ${now.toLocaleString('ja-JP')}
 
 ---
 

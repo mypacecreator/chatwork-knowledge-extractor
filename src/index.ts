@@ -34,6 +34,11 @@ async function main() {
     // Step 1: Chatworkからメッセージ取得
     console.log('[1/4] Chatworkメッセージ取得中...\n');
     const chatworkClient = new ChatworkClient(chatworkToken);
+
+    // ルーム情報を取得
+    const roomInfo = await chatworkClient.getRoomInfo(roomId);
+    console.log(`対象ルーム: ${roomInfo.name} (ID: ${roomId})\n`);
+
     const fetchResult = await chatworkClient.getAllMessages(roomId, maxMessages);
     let messages = fetchResult.messages;
 
@@ -74,17 +79,23 @@ async function main() {
       .replace('T', '_');
     const baseFilename = `knowledge_${timestamp}`;
 
+    // フォーマットオプション
+    const formatOptions = {
+      roomName: roomInfo.name,
+      roomId: roomId
+    };
+
     // Step 4: Markdown出力
     console.log('[3/4] Markdown出力中...\n');
     const markdownPath = join(outputDir, `${baseFilename}.md`);
     const markdownFormatter = new MarkdownFormatter();
-    await markdownFormatter.format(knowledgeItems, markdownPath);
+    await markdownFormatter.format(knowledgeItems, markdownPath, formatOptions);
 
     // Step 5: JSON出力
     console.log('\n[4/4] JSON出力中...\n');
     const jsonPath = join(outputDir, `${baseFilename}.json`);
     const jsonFormatter = new JSONFormatter();
-    await jsonFormatter.format(knowledgeItems, jsonPath);
+    await jsonFormatter.format(knowledgeItems, jsonPath, formatOptions);
 
     // 完了
     console.log('\n=== 完了 ===');

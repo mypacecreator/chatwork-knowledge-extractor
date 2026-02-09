@@ -20,6 +20,14 @@ export interface FetchResult {
   apiMessageCount: number;
 }
 
+export interface RoomInfo {
+  room_id: number;
+  name: string;
+  type: 'my' | 'direct' | 'group';
+  icon_path: string;
+  description: string;
+}
+
 export class ChatworkClient {
   private apiToken: string;
   private baseUrl = 'https://api.chatwork.com/v2';
@@ -28,6 +36,27 @@ export class ChatworkClient {
   constructor(apiToken: string, cacheDir: string = './cache') {
     this.apiToken = apiToken;
     this.cacheManager = new MessageCacheManager(cacheDir);
+  }
+
+  /**
+   * ルーム情報を取得
+   */
+  async getRoomInfo(roomId: string): Promise<RoomInfo> {
+    const url = `${this.baseUrl}/rooms/${roomId}`;
+
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'x-chatworktoken': this.apiToken,
+        'Accept': 'application/json'
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error(`Chatwork API Error: ${response.status} ${response.statusText}`);
+    }
+
+    return await response.json() as RoomInfo;
   }
 
   /**
