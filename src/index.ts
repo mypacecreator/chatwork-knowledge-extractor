@@ -96,7 +96,12 @@ async function main() {
       .replace(/:/g, '-')
       .replace(/\..+/, '')
       .replace('T', '_');
-    const baseFilename = `knowledge_${roomId}_${timestamp}`;
+    // ルーム名からファイル名に使えない文字を除去
+    const safeRoomName = roomInfo.name
+      .replace(/[\/\\:*?"<>|]/g, '')  // ファイル名禁止文字を除去
+      .replace(/\s+/g, '_')            // スペースをアンダースコアに
+      .substring(0, 50);               // 長すぎる場合は切り詰め
+    const baseFilename = `knowledge_${roomId}_${safeRoomName}_${timestamp}`;
 
     // フォーマットオプション
     const formatOptions = {
