@@ -17,9 +17,10 @@ async function main() {
   const claudeApiKey = process.env.CLAUDE_API_KEY;
   const outputDir = process.env.OUTPUT_DIR || './output';
   const maxMessages = parseInt(process.env.MAX_MESSAGES || '500');
-  const daysToExtract = process.env.DAYS_TO_EXTRACT 
-    ? parseInt(process.env.DAYS_TO_EXTRACT) 
-    : undefined;
+
+  // EXTRACT_FROM: 日付形式（YYYY-MM-DD）または日数
+  // 後方互換のためDAYS_TO_EXTRACTもサポート
+  const extractFromRaw = process.env.EXTRACT_FROM || process.env.DAYS_TO_EXTRACT;
 
   if (!chatworkToken || !roomId || !claudeApiKey) {
     console.error('エラー: 環境変数が設定されていません');
@@ -48,9 +49,10 @@ async function main() {
     console.log(`取得完了: ${messages.length}件\n`);
 
     // 期間フィルタ
-    if (daysToExtract) {
-      messages = chatworkClient.filterByDateRange(messages, daysToExtract);
-      console.log(`期間フィルタ適用（過去${daysToExtract}日）: ${messages.length}件\n`);
+    if (extractFromRaw) {
+      const { messages: filtered, description } = chatworkClient.filterByExtractFrom(messages, extractFromRaw);
+      messages = filtered;
+      console.log(`期間フィルタ適用（${description}）: ${messages.length}件\n`);
     }
 
     if (messages.length === 0) {

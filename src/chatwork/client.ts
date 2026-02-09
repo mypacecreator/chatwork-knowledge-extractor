@@ -171,11 +171,45 @@ export class ChatworkClient {
   }
 
   /**
-   * 期間を指定してメッセージをフィルタ
+   * 期間を指定してメッセージをフィルタ（日数指定）
    */
   filterByDateRange(messages: ChatworkMessage[], daysBack: number): ChatworkMessage[] {
     const cutoffTime = Math.floor(Date.now() / 1000) - (daysBack * 24 * 60 * 60);
     return messages.filter(msg => msg.send_time >= cutoffTime);
+  }
+
+  /**
+   * EXTRACT_FROM形式でメッセージをフィルタ
+   * - 数字: 過去N日間
+   * - 日付形式（YYYY-MM-DD）: 指定日以降
+   */
+  filterByExtractFrom(messages: ChatworkMessage[], extractFrom: string): { messages: ChatworkMessage[]; description: string } {
+    // 日付形式かどうかをチェック（YYYY-MM-DD）
+    const dateMatch = extractFrom.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+
+    if (dateMatch) {
+      // 日付形式の場合
+      const fromDate = new Date(extractFrom);
+      fromDate.setHours(0, 0, 0, 0);
+      const cutoffTime = Math.floor(fromDate.getTime() / 1000);
+      const filtered = messages.filter(msg => msg.send_time >= cutoffTime);
+      return {
+        messages: filtered,
+        description: `${extractFrom}以降`
+      };
+    } else {
+      // 数字（日数）の場合
+      const days = parseInt(extractFrom);
+      if (isNaN(days)) {
+        console.warn(`[警告] EXTRACT_FROM の形式が不正です: ${extractFrom}`);
+        return { messages, description: '全期間' };
+      }
+      const filtered = this.filterByDateRange(messages, days);
+      return {
+        messages: filtered,
+        description: `過去${days}日`
+      };
+    }
   }
 
   private sleep(ms: number): Promise<void> {

@@ -35,7 +35,7 @@ cp .env.example .env
 CHATWORK_API_TOKEN=your_chatwork_api_token
 CHATWORK_ROOM_ID=your_room_id
 CLAUDE_API_KEY=your_claude_api_key
-DAYS_TO_EXTRACT=90
+EXTRACT_FROM=90
 MAX_MESSAGES=500
 OUTPUT_DIR=./output
 ```
@@ -45,8 +45,8 @@ OUTPUT_DIR=./output
 | `CHATWORK_API_TOKEN` | ✅ | Chatwork APIトークン |
 | `CHATWORK_ROOM_ID` | ✅ | 対象ルームID |
 | `CLAUDE_API_KEY` | ✅ | Claude APIキー |
-| `DAYS_TO_EXTRACT` | - | 取得期間（日数）。省略時は全期間 |
-| `MAX_MESSAGES` | - | 最大メッセージ数。デフォルト500 |
+| `EXTRACT_FROM` | - | 分析対象期間。数字なら過去N日、日付（2025-01-01）ならその日以降 |
+| `MAX_MESSAGES` | - | 分析対象の最大件数。デフォルト500 |
 | `OUTPUT_DIR` | - | 出力先ディレクトリ。デフォルト`./output` |
 
 ### 3. APIトークンの取得
