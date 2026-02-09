@@ -3,6 +3,7 @@ import { ChatworkClient } from './chatwork/client.js';
 import { ClaudeAnalyzer } from './claude/analyzer.js';
 import { MarkdownFormatter } from './formatter/markdown.js';
 import { JSONFormatter } from './formatter/json.js';
+import { MessageCacheManager } from './cache/messages.js';
 import { join } from 'path';
 
 // 環境変数読み込み
@@ -60,18 +61,34 @@ async function main() {
       return;
     }
 
-    // Step 2: Claude Batch APIで分析
+    // 未分析メッセージを抽出
+    const cacheManager = new MessageCacheManager();
+    const analyzedIds = await cacheManager.getAnalyzedIds(roomId);
+    const unanalyzedMessages = cacheManager.getUnanalyzedMessages(messages, analyzedIds);
+
+    console.log(`未分析メッセージ: ${unanalyzedMessages.length}件\n`);
+
+    if (unanalyzedMessages.length === 0) {
+      console.log('新しく分析するメッセージがありません。処理を終了します。');
+      return;
+    }
+
+    // Step 2: Claude Batch APIで分析（未分析分のみ）
     console.log('[2/4] Claude Batch APIで分析中...\n');
     console.log('※ バッチ処理のため、完了まで数分〜数十分かかります\n');
-    
+
     const analyzer = new ClaudeAnalyzer(claudeApiKey);
-    const analyzed = await analyzer.analyzeBatch(messages);
+    const analyzed = await analyzer.analyzeBatch(unanalyzedMessages);
+
+    // 分析したメッセージIDを記録
+    const newlyAnalyzedIds = unanalyzedMessages.map(m => m.message_id);
+    await cacheManager.markAsAnalyzed(roomId, newlyAnalyzedIds);
 
     // 定型的なやりとりを除外
     const knowledgeItems = analyzed.filter(
       item => item.category !== '定型的なやりとり'
     );
-    
+
     console.log(`\n分析完了: ${analyzed.length}件中 ${knowledgeItems.length}件が形式知化対象\n`);
 
     // Step 3: 出力ファイル名生成

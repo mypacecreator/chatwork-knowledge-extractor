@@ -8,6 +8,7 @@ export interface MessageCache {
   lastUpdated: string;
   lastMessageId: string | null;
   messages: ChatworkMessage[];
+  analyzedMessageIds: string[]; // 分析済みのmessage_id一覧
 }
 
 export class MessageCacheManager {
@@ -43,7 +44,7 @@ export class MessageCacheManager {
   /**
    * キャッシュを保存
    */
-  async save(roomId: string, messages: ChatworkMessage[]): Promise<void> {
+  async save(roomId: string, messages: ChatworkMessage[], analyzedMessageIds?: string[]): Promise<void> {
     const cachePath = this.getCachePath(roomId);
 
     // ディレクトリがなければ作成
@@ -51,6 +52,13 @@ export class MessageCacheManager {
     if (!existsSync(dir)) {
       await mkdir(dir, { recursive: true });
     }
+
+    // 既存キャッシュから分析済みIDを取得
+    const existingCache = await this.load(roomId);
+    const existingAnalyzedIds = existingCache?.analyzedMessageIds || [];
+
+    // 新しい分析済みIDをマージ
+    const allAnalyzedIds = [...new Set([...existingAnalyzedIds, ...(analyzedMessageIds || [])])];
 
     // message_idでソート（新しい順）
     const sortedMessages = [...messages].sort(
@@ -61,11 +69,36 @@ export class MessageCacheManager {
       roomId,
       lastUpdated: new Date().toISOString(),
       lastMessageId: sortedMessages.length > 0 ? sortedMessages[0].message_id : null,
-      messages: sortedMessages
+      messages: sortedMessages,
+      analyzedMessageIds: allAnalyzedIds
     };
 
     await writeFile(cachePath, JSON.stringify(cache, null, 2), 'utf-8');
     console.log(`[Cache] 保存完了: ${messages.length}件 (${cachePath})`);
+  }
+
+  /**
+   * 未分析のメッセージのみを取得
+   */
+  getUnanalyzedMessages(messages: ChatworkMessage[], analyzedIds: string[]): ChatworkMessage[] {
+    const analyzedSet = new Set(analyzedIds);
+    return messages.filter(msg => !analyzedSet.has(msg.message_id));
+  }
+
+  /**
+   * 分析済みIDを追加保存
+   */
+  async markAsAnalyzed(roomId: string, messageIds: string[]): Promise<void> {
+    const cache = await this.load(roomId);
+    if (!cache) return;
+
+    const allAnalyzedIds = [...new Set([...cache.analyzedMessageIds, ...messageIds])];
+    cache.analyzedMessageIds = allAnalyzedIds;
+    cache.lastUpdated = new Date().toISOString();
+
+    const cachePath = this.getCachePath(roomId);
+    await writeFile(cachePath, JSON.stringify(cache, null, 2), 'utf-8');
+    console.log(`[Cache] 分析済みとしてマーク: ${messageIds.length}件`);
   }
 
   /**
@@ -112,9 +145,12 @@ export class MessageCacheManager {
 
     const oldestMsg = cache.messages[cache.messages.length - 1];
     const newestMsg = cache.messages[0];
+    const analyzedCount = cache.analyzedMessageIds?.length || 0;
+    const unanalyzedCount = cache.messages.length - analyzedCount;
 
     console.log(`[Cache] 統計情報:`);
     console.log(`  - 保存件数: ${cache.messages.length}件`);
+    console.log(`  - 分析済み: ${analyzedCount}件 / 未分析: ${unanalyzedCount}件`);
     console.log(`  - 最終更新: ${cache.lastUpdated}`);
     if (oldestMsg) {
       console.log(`  - 最古: ${new Date(oldestMsg.send_time * 1000).toLocaleString('ja-JP')}`);
@@ -122,5 +158,13 @@ export class MessageCacheManager {
     if (newestMsg) {
       console.log(`  - 最新: ${new Date(newestMsg.send_time * 1000).toLocaleString('ja-JP')}`);
     }
+  }
+
+  /**
+   * 分析済みIDリストを取得
+   */
+  async getAnalyzedIds(roomId: string): Promise<string[]> {
+    const cache = await this.load(roomId);
+    return cache?.analyzedMessageIds || [];
   }
 }
