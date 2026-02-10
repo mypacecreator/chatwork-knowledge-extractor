@@ -21,7 +21,15 @@ export interface AnalyzedMessage {
 
 export interface AnalyzerOptions {
   promptTemplatePath?: string;
+  feedbackPath?: string;
   model?: string;
+}
+
+export interface FeedbackCorrection {
+  example: string;
+  wrong_level: string;
+  correct_level: string;
+  reason: string;
 }
 
 const DEFAULT_MODEL = 'claude-sonnet-4-5-20250929';
@@ -30,11 +38,13 @@ export class ClaudeAnalyzer {
   private client: Anthropic;
   private promptTemplate: string | null = null;
   private model: string;
+  private feedbackExamples: FeedbackCorrection[] = [];
 
   constructor(apiKey: string, options: AnalyzerOptions = {}) {
     this.client = new Anthropic({ apiKey });
     this.model = options.model || DEFAULT_MODEL;
     this.loadPromptTemplate(options.promptTemplatePath);
+    this.loadFeedback(options.feedbackPath);
   }
 
   /**
@@ -65,6 +75,39 @@ export class ClaudeAnalyzer {
     } else {
       console.log('[Claude] デフォルトプロンプトを使用');
     }
+  }
+
+  /**
+   * フィードバックファイルを読み込む
+   */
+  private loadFeedback(customPath?: string): void {
+    const projectRoot = join(__dirname, '..', '..');
+    const feedbackPath = customPath || join(projectRoot, 'feedback', 'corrections.json');
+
+    if (existsSync(feedbackPath)) {
+      try {
+        const content = readFileSync(feedbackPath, 'utf-8');
+        this.feedbackExamples = JSON.parse(content);
+        console.log(`[Claude] フィードバック読み込み: ${this.feedbackExamples.length}件の修正例`);
+      } catch (e) {
+        console.error(`[Claude] フィードバック読み込みエラー: ${feedbackPath}`);
+      }
+    }
+  }
+
+  /**
+   * フィードバック例をプロンプト用テキストに変換
+   */
+  private formatFeedbackExamples(): string {
+    if (this.feedbackExamples.length === 0) {
+      return '';
+    }
+
+    let text = '\n【過去の修正例（これらを参考に判定してください）】\n';
+    for (const fb of this.feedbackExamples) {
+      text += `- "${fb.example}" → ${fb.wrong_level}ではなく${fb.correct_level}（理由: ${fb.reason}）\n`;
+    }
+    return text;
   }
 
   /**
@@ -157,6 +200,8 @@ export class ClaudeAnalyzer {
     const date = new Date(message.send_time * 1000).toISOString();
     const escapedBody = message.body.replace(/"/g, '\\"').replace(/\n/g, '\\n');
 
+    const feedbackText = this.formatFeedbackExamples();
+
     // 外部テンプレートがある場合はプレースホルダーを置換
     if (this.promptTemplate) {
       return this.promptTemplate
@@ -164,7 +209,8 @@ export class ClaudeAnalyzer {
         .replace(/\{\{speaker\}\}/g, message.account.name)
         .replace(/\{\{date\}\}/g, date)
         .replace(/\{\{body\}\}/g, message.body)
-        .replace(/\{\{escaped_body\}\}/g, escapedBody);
+        .replace(/\{\{escaped_body\}\}/g, escapedBody)
+        .replace(/\{\{feedback_examples\}\}/g, feedbackText);
     }
 
     // デフォルトプロンプト（フォールバック）
@@ -218,7 +264,7 @@ export class ClaudeAnalyzer {
 - 技術的理由や原則の説明がある → high
 - 業界特有のパターン・傾向 → medium
 - 状況判断の考え方・アプローチ → low
-
+${feedbackText}
 3. タグを自動生成（技術名、業務タイプなど、3-5個程度）
    ※標準的な技術用語を使用（WordPress、CSS、JavaScript、SEO、デザインレビューなど）
 

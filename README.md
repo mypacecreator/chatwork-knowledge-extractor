@@ -51,6 +51,7 @@ OUTPUT_DIR=./output
 | `OUTPUT_DIR` | - | 出力先ディレクトリ。デフォルト`./output` |
 | `OUTPUT_VERSATILITY` | - | 出力する汎用性レベル。デフォルト`high,medium` |
 | `PROMPT_TEMPLATE_PATH` | - | カスタムプロンプトのパス。デフォルト`prompts/analysis.md` |
+| `FEEDBACK_PATH` | - | フィードバックファイルのパス。デフォルト`feedback/corrections.json` |
 
 **利用可能なモデル一覧:** https://platform.claude.com/docs/ja/about-claude/models/overview
 
@@ -265,6 +266,52 @@ OUTPUT_VERSATILITY=high           # 厳格（普遍的知見のみ）
 OUTPUT_VERSATILITY=high,medium    # 推奨（デフォルト）
 OUTPUT_VERSATILITY=high,medium,low # すべて含む
 ```
+
+---
+
+## フィードバックによる精度改善
+
+汎用性レベルの判定精度を継続的に改善できます。
+
+### 仕組み
+
+1. 出力結果を確認し、誤判定を見つける
+2. `feedback/corrections.json` に修正例を追加
+3. 次回実行時、修正例がプロンプトに自動注入される
+
+### フィードバックファイルの作成
+
+```bash
+cp feedback/corrections.example.json feedback/corrections.json
+```
+
+### フィードバックの記述例
+
+```json
+[
+  {
+    "example": "レスポンシブはモバイルファーストで実装する",
+    "wrong_level": "medium",
+    "correct_level": "high",
+    "reason": "技術原則として普遍的に適用できる"
+  },
+  {
+    "example": "A社のロゴは左上に配置",
+    "wrong_level": "low",
+    "correct_level": "exclude",
+    "reason": "完全に案件固有の指示"
+  }
+]
+```
+
+| フィールド | 説明 |
+|-----------|------|
+| `example` | 誤判定されたメッセージの内容（または要約） |
+| `wrong_level` | AIが誤って判定したレベル |
+| `correct_level` | 正しいレベル |
+| `reason` | なぜそのレベルが正しいかの理由 |
+
+フィードバックを蓄積していくことで、チーム固有の判断基準をAIに学習させることができます。
 
 ---
 

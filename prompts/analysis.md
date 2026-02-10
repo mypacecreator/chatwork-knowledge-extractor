@@ -57,7 +57,7 @@
 - 技術的理由や原則の説明がある → high
 - 業界特有のパターン・傾向 → medium
 - 状況判断の考え方・アプローチ → low
-
+{{feedback_examples}}
 3. タグを自動生成（技術名、業務タイプなど、3-5個程度）
    ※標準的な技術用語を使用（WordPress、CSS、JavaScript、SEO、デザインレビューなど）
 

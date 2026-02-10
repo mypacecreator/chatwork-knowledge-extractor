@@ -1,0 +1,20 @@
+[
+  {
+    "example": "レスポンシブはモバイルファーストで実装する",
+    "wrong_level": "medium",
+    "correct_level": "high",
+    "reason": "技術原則として普遍的に適用できる"
+  },
+  {
+    "example": "画像はWebP形式で書き出してください",
+    "wrong_level": "high",
+    "correct_level": "medium",
+    "reason": "ブラウザ対応状況により判断が分かれるため"
+  },
+  {
+    "example": "A社のロゴは左上に配置",
+    "wrong_level": "low",
+    "correct_level": "exclude",
+    "reason": "完全に案件固有の指示"
+  }
+]

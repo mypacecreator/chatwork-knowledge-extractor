@@ -19,6 +19,7 @@ async function main() {
   const outputDir = process.env.OUTPUT_DIR || './output';
   const maxMessages = parseInt(process.env.MAX_MESSAGES || '500');
   const promptTemplatePath = process.env.PROMPT_TEMPLATE_PATH;
+  const feedbackPath = process.env.FEEDBACK_PATH;
   const claudeModel = process.env.CLAUDE_MODEL;
   const outputVersatility = (process.env.OUTPUT_VERSATILITY || 'high,medium')
     .split(',')
@@ -83,6 +84,7 @@ async function main() {
 
     const analyzer = new ClaudeAnalyzer(claudeApiKey, {
       promptTemplatePath,
+      feedbackPath,
       model: claudeModel
     });
     const usedModel = analyzer.getModel();
