@@ -35,7 +35,13 @@ export class ClaudeAnalyzer {
     this.client = new Anthropic({ apiKey });
     this.model = options.model || DEFAULT_MODEL;
     this.loadPromptTemplate(options.promptTemplatePath);
-    console.log(`[Claude] 使用モデル: ${this.model}`);
+  }
+
+  /**
+   * 使用モデル名を取得
+   */
+  getModel(): string {
+    return this.model;
   }
 
   /**

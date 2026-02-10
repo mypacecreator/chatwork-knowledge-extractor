@@ -80,12 +80,15 @@ async function main() {
 
     // Step 2: Claude Batch APIで分析（未分析分のみ）
     console.log('[2/4] Claude Batch APIで分析中...\n');
-    console.log('※ バッチ処理のため、完了まで数分〜数十分かかります\n');
 
     const analyzer = new ClaudeAnalyzer(claudeApiKey, {
       promptTemplatePath,
       model: claudeModel
     });
+    const usedModel = analyzer.getModel();
+    console.log(`使用モデル: ${usedModel}`);
+    console.log('※ バッチ処理のため、完了まで数分〜数十分かかります\n');
+
     const analyzed = await analyzer.analyzeBatch(unanalyzedMessages);
 
     // 分析したメッセージIDを記録
@@ -118,7 +121,8 @@ async function main() {
     // フォーマットオプション
     const formatOptions = {
       roomName: roomInfo.name,
-      roomId: roomId
+      roomId: roomId,
+      model: usedModel
     };
 
     // Step 4: Markdown出力

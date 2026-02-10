@@ -6,6 +6,7 @@ import { dirname } from 'path';
 export interface FormatOptions {
   roomName?: string;
   roomId?: string;
+  model?: string;
 }
 
 export class MarkdownFormatter {
@@ -61,10 +62,11 @@ export class MarkdownFormatter {
     const roomInfo = options.roomName
       ? `対象ルーム: ${options.roomName}${options.roomId ? ` (ID: ${options.roomId})` : ''}\n`
       : '';
+    const modelInfo = options.model ? `分析モデル: ${options.model}\n` : '';
 
     return `# Chatwork知見まとめ
 
-${roomInfo}生成日時: ${now.toLocaleString('ja-JP')}
+${roomInfo}${modelInfo}生成日時: ${now.toLocaleString('ja-JP')}
 
 ---
 

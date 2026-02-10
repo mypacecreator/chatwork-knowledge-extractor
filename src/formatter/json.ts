@@ -5,10 +5,12 @@ import { dirname } from 'path';
 export interface FormatOptions {
   roomName?: string;
   roomId?: string;
+  model?: string;
 }
 
 interface KnowledgeExport {
   export_date: string;
+  model?: string;
   room?: {
     name: string;
     id: string;
@@ -27,6 +29,11 @@ export class JSONFormatter {
       total_items: messages.length,
       items: messages
     };
+
+    // モデル情報を追加
+    if (options.model) {
+      exportData.model = options.model;
+    }
 
     // ルーム情報を追加
     if (options.roomName) {
