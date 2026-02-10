@@ -24,6 +24,7 @@ async function main() {
   const outputVersatility = (process.env.OUTPUT_VERSATILITY || 'high,medium')
     .split(',')
     .map(v => v.trim());
+  const anonymizeSpeakers = process.env.ANONYMIZE_SPEAKERS === 'true';
 
   // EXTRACT_FROM: 日付形式（YYYY-MM-DD）または日数
   // 後方互換のためDAYS_TO_EXTRACTもサポート
@@ -105,6 +106,20 @@ async function main() {
         && item.category !== '除外対象'
         && outputVersatility.includes(item.versatility)
     );
+
+    // 発言者名の匿名化
+    if (anonymizeSpeakers) {
+      const speakerMap = new Map<string, string>();
+      let speakerCount = 0;
+      for (const item of knowledgeItems) {
+        if (!speakerMap.has(item.speaker)) {
+          speakerCount++;
+          speakerMap.set(item.speaker, `発言者${speakerCount}`);
+        }
+        item.speaker = speakerMap.get(item.speaker)!;
+      }
+      console.log(`発言者名を匿名化: ${speakerMap.size}名`);
+    }
 
     console.log(`分析完了: ${analyzed.length}件中 ${knowledgeItems.length}件が形式知化対象\n`);
 
