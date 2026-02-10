@@ -14,6 +14,7 @@ dist/
 
 # Output files
 output/
+feedback/corrections.json
 
 # Cache (runtime data)
 /cache/
