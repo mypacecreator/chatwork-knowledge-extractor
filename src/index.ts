@@ -19,6 +19,7 @@ async function main() {
   const outputDir = process.env.OUTPUT_DIR || './output';
   const maxMessages = parseInt(process.env.MAX_MESSAGES || '500');
   const promptTemplatePath = process.env.PROMPT_TEMPLATE_PATH;
+  const claudeModel = process.env.CLAUDE_MODEL;
   const outputVersatility = (process.env.OUTPUT_VERSATILITY || 'high,medium')
     .split(',')
     .map(v => v.trim());
@@ -81,7 +82,10 @@ async function main() {
     console.log('[2/4] Claude Batch APIで分析中...\n');
     console.log('※ バッチ処理のため、完了まで数分〜数十分かかります\n');
 
-    const analyzer = new ClaudeAnalyzer(claudeApiKey, promptTemplatePath);
+    const analyzer = new ClaudeAnalyzer(claudeApiKey, {
+      promptTemplatePath,
+      model: claudeModel
+    });
     const analyzed = await analyzer.analyzeBatch(unanalyzedMessages);
 
     // 分析したメッセージIDを記録

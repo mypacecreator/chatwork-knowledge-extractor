@@ -45,9 +45,14 @@ OUTPUT_DIR=./output
 | `CHATWORK_API_TOKEN` | ✅ | Chatwork APIトークン |
 | `CHATWORK_ROOM_ID` | ✅ | 対象ルームID |
 | `CLAUDE_API_KEY` | ✅ | Claude APIキー |
+| `CLAUDE_MODEL` | - | 使用するClaudeモデル。デフォルト`claude-sonnet-4-5-20250929` |
 | `EXTRACT_FROM` | - | 分析対象期間。数字なら過去N日、日付（2025-01-01）ならその日以降 |
 | `MAX_MESSAGES` | - | 分析対象の最大件数。デフォルト500 |
 | `OUTPUT_DIR` | - | 出力先ディレクトリ。デフォルト`./output` |
+| `OUTPUT_VERSATILITY` | - | 出力する汎用性レベル。デフォルト`high,medium` |
+| `PROMPT_TEMPLATE_PATH` | - | カスタムプロンプトのパス。デフォルト`prompts/analysis.md` |
+
+**利用可能なモデル一覧:** https://platform.claude.com/docs/ja/about-claude/models/overview
 
 ### 3. APIトークンの取得
 
@@ -238,19 +243,28 @@ rm cache/room_*.json
 
 | カテゴリ | 説明 | 出力対象 |
 |----------|------|----------|
-| 実装ノウハウ | コーディング、WordPress、ECサイト関連 | ✅ |
-| 制作方針・指示出し | 実装や制作の方針に関する指示 | ✅ |
-| トラブル対応 | エラー解決、不具合対処 | ✅ |
-| 質疑応答・相談 | 判断基準、仕様確認 | ✅ |
-| 定型的なやりとり | 挨拶、スケジュール調整など | ❌（除外） |
+| 実装ノウハウ | コーディング、WordPress、ECサイト関連の技術的知見 | ✅ |
+| 制作方針・指示出し | 実装や制作の方針に関する普遍的な知見 | ✅ |
+| トラブル対応 | エラー解決、不具合対処の汎用的な方法 | ✅ |
+| 質疑応答・相談 | 判断基準、仕様確認の汎用的なパターン | ✅ |
+| 除外対象 | 案件固有の内容、挨拶、スケジュール調整など | ❌（除外） |
 
-### 汎用性レベル
+### 汎用性レベル（4段階）
 
 | レベル | 説明 | 例 |
 |--------|------|-----|
-| high | 他のプロジェクトでも活用できる普遍的な知見 | 「レスポンシブ画像はsrcsetを優先する理由」 |
-| medium | 一部のプロジェクトで活用できる知見 | 「WordPress案件でのカスタム投稿タイプ設計」 |
-| low | 特定のプロジェクトに固有の内容 | 「A社サイトのヘッダー高さは60px」 |
+| high | 普遍的な技術知見（どの案件でも活用可能） | 「WP_DEBUGは本番でfalseにする」 |
+| medium | 業界・技術領域特有の知見 | 「不動産サイトではGoogleマップ埋め込みが必須」 |
+| low | ケースバイケースだが参考になる判断例 | 「素材未確定時はダミーで仮配置」 |
+| exclude | 案件固有・定型文（出力から除外） | 「メインカラーは#3498db」「了解しました」 |
+
+`OUTPUT_VERSATILITY` 環境変数で出力対象を制御できます：
+
+```env
+OUTPUT_VERSATILITY=high           # 厳格（普遍的知見のみ）
+OUTPUT_VERSATILITY=high,medium    # 推奨（デフォルト）
+OUTPUT_VERSATILITY=high,medium,low # すべて含む
+```
 
 ---
 

@@ -19,13 +19,23 @@ export interface AnalyzedMessage {
   original_body: string;
 }
 
+export interface AnalyzerOptions {
+  promptTemplatePath?: string;
+  model?: string;
+}
+
+const DEFAULT_MODEL = 'claude-sonnet-4-5-20250929';
+
 export class ClaudeAnalyzer {
   private client: Anthropic;
   private promptTemplate: string | null = null;
+  private model: string;
 
-  constructor(apiKey: string, promptTemplatePath?: string) {
+  constructor(apiKey: string, options: AnalyzerOptions = {}) {
     this.client = new Anthropic({ apiKey });
-    this.loadPromptTemplate(promptTemplatePath);
+    this.model = options.model || DEFAULT_MODEL;
+    this.loadPromptTemplate(options.promptTemplatePath);
+    console.log(`[Claude] 使用モデル: ${this.model}`);
   }
 
   /**
@@ -62,7 +72,7 @@ export class ClaudeAnalyzer {
     const requests = messages.map((msg, index) => ({
       custom_id: `msg_${msg.message_id}`,
       params: {
-        model: 'claude-sonnet-4-5-20250929',
+        model: this.model,
         max_tokens: 1000,
         messages: [{
           role: 'user' as const,
