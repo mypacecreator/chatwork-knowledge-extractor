@@ -16,7 +16,6 @@ export interface AnalyzedMessage {
   speaker: string;
   date: string;
   formatted_content: string;
-  original_body: string;
 }
 
 export interface AnalyzerOptions {
@@ -198,7 +197,6 @@ export class ClaudeAnalyzer {
    */
   private createAnalysisPrompt(message: ChatworkMessage): string {
     const date = new Date(message.send_time * 1000).toISOString();
-    const escapedBody = message.body.replace(/"/g, '\\"').replace(/\n/g, '\\n');
 
     const feedbackText = this.formatFeedbackExamples();
 
@@ -209,7 +207,6 @@ export class ClaudeAnalyzer {
         .replace(/\{\{speaker\}\}/g, message.account.name)
         .replace(/\{\{date\}\}/g, date)
         .replace(/\{\{body\}\}/g, message.body)
-        .replace(/\{\{escaped_body\}\}/g, escapedBody)
         .replace(/\{\{feedback_examples\}\}/g, feedbackText);
     }
 
@@ -276,6 +273,17 @@ ${feedbackText}
    - 「これ」「それ」などの指示語を具体的な名詞に置き換え
    - 前提条件や背景も補足
 
+6. 【必須】機密情報・個人情報の除去:
+   formatted_contentには以下の情報を**絶対に含めないでください**:
+   - 個人名・担当者名（「田中さんが」→「担当者が」のように一般化）
+   - メールアドレス・電話番号・住所
+   - 社名・クライアント名・案件名（「A社の案件」→「クライアント案件」のように一般化）
+   - URL・IPアドレス・ドメイン名（技術解説に必要な一般的なURL例は除く）
+   - パスワード・APIキー・トークン等の認証情報
+   - 社内システムのパス・内部サーバー名
+   - 金額・見積もり・契約に関する具体的数値
+   上記が含まれる場合は一般的な表現に置き換えるか、知見の本質に関係なければ削除してください。
+
 【出力形式】
 以下のJSON形式で返してください。それ以外は一切出力しないでください。
 
@@ -287,8 +295,7 @@ ${feedbackText}
   "tags": ["タグ1", "タグ2", "タグ3"],
   "speaker": "${message.account.name}",
   "date": "${date}",
-  "formatted_content": "整形後の内容",
-  "original_body": "${escapedBody}"
+  "formatted_content": "整形後の内容"
 }`;
   }
 

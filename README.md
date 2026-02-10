@@ -52,6 +52,7 @@ OUTPUT_DIR=./output
 | `OUTPUT_VERSATILITY` | - | 出力する汎用性レベル。デフォルト`high,medium` |
 | `PROMPT_TEMPLATE_PATH` | - | カスタムプロンプトのパス。デフォルト`prompts/analysis.md` |
 | `FEEDBACK_PATH` | - | フィードバックファイルのパス。デフォルト`feedback/corrections.json` |
+| `ANONYMIZE_SPEAKERS` | - | `true`で発言者名を「発言者1」等に匿名化。デフォルト`false` |
 
 **利用可能なモデル一覧:** https://platform.claude.com/docs/ja/about-claude/models/overview
 
@@ -198,8 +199,7 @@ NotebookLMや他の生成AIで二次利用可能：
       "tags": ["URL設計", "SEO", "コーディング規約"],
       "speaker": "野村 圭",
       "date": "2025-02-07T06:54:40.000Z",
-      "formatted_content": "サイト内のリンクURLに...",
-      "original_body": "確認しました。フッター..."
+      "formatted_content": "サイト内のリンクURLに..."
     }
   ]
 }
@@ -266,6 +266,41 @@ OUTPUT_VERSATILITY=high           # 厳格（普遍的知見のみ）
 OUTPUT_VERSATILITY=high,medium    # 推奨（デフォルト）
 OUTPUT_VERSATILITY=high,medium,low # すべて含む
 ```
+
+---
+
+## プライバシー・機密情報の保護
+
+出力データに機密情報や個人情報が含まれないよう、複数の対策を組み合わせています。
+
+### プロンプトによるPII除去
+
+分析プロンプトにて、`formatted_content`（整形後テキスト）から以下の情報を除去・一般化するようClaude AIに指示しています：
+
+- 個人名・担当者名（「田中さんが」→「担当者が」）
+- メールアドレス・電話番号・住所
+- 社名・クライアント名・案件名
+- URL・IPアドレス・ドメイン名（技術解説用の一般的な例は除く）
+- パスワード・APIキー・トークン等の認証情報
+- 社内システムのパス・内部サーバー名
+- 金額・見積もり・契約に関する具体的数値
+
+### 生データの出力除外
+
+元のチャットメッセージ本文（`original_body`）は出力ファイルに含まれません。出力されるのはClaude AIが整形・匿名化済みの`formatted_content`のみです。
+
+### 発言者名の匿名化
+
+`ANONYMIZE_SPEAKERS=true`を設定すると、出力中の発言者名が「発言者1」「発言者2」等の匿名表記に自動変換されます。
+
+```env
+ANONYMIZE_SPEAKERS=true
+```
+
+### その他の保護
+
+- APIトークン・キー等は`.env`に保存され、`.gitignore`で除外済み
+- キャッシュファイル（`cache/`）と出力ファイル（`output/`）もリポジトリに含まれません
 
 ---
 
