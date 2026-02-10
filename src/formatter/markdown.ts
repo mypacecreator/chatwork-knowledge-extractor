@@ -45,7 +45,7 @@ export class MarkdownFormatter {
     // 各カテゴリ内で汎用性の高い順にソート
     for (const category in grouped) {
       grouped[category].sort((a, b) => {
-        const order = { high: 0, medium: 1, low: 2 };
+        const order: Record<string, number> = { high: 0, medium: 1, low: 2, exclude: 3 };
         return order[a.versatility] - order[b.versatility];
       });
     }

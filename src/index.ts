@@ -18,6 +18,10 @@ async function main() {
   const claudeApiKey = process.env.CLAUDE_API_KEY;
   const outputDir = process.env.OUTPUT_DIR || './output';
   const maxMessages = parseInt(process.env.MAX_MESSAGES || '500');
+  const promptTemplatePath = process.env.PROMPT_TEMPLATE_PATH;
+  const outputVersatility = (process.env.OUTPUT_VERSATILITY || 'high,medium')
+    .split(',')
+    .map(v => v.trim());
 
   // EXTRACT_FROM: 日付形式（YYYY-MM-DD）または日数
   // 後方互換のためDAYS_TO_EXTRACTもサポート
@@ -77,19 +81,23 @@ async function main() {
     console.log('[2/4] Claude Batch APIで分析中...\n');
     console.log('※ バッチ処理のため、完了まで数分〜数十分かかります\n');
 
-    const analyzer = new ClaudeAnalyzer(claudeApiKey);
+    const analyzer = new ClaudeAnalyzer(claudeApiKey, promptTemplatePath);
     const analyzed = await analyzer.analyzeBatch(unanalyzedMessages);
 
     // 分析したメッセージIDを記録
     const newlyAnalyzedIds = unanalyzedMessages.map(m => m.message_id);
     await cacheManager.markAsAnalyzed(roomId, newlyAnalyzedIds);
 
-    // 定型的なやりとりを除外
+    console.log(`\n汎用性フィルタ: ${outputVersatility.join(', ')} のみ出力`);
+
+    // excludeを除外し、指定されたレベルのみ抽出
     const knowledgeItems = analyzed.filter(
-      item => item.category !== '定型的なやりとり'
+      item => item.versatility !== 'exclude'
+        && item.category !== '除外対象'
+        && outputVersatility.includes(item.versatility)
     );
 
-    console.log(`\n分析完了: ${analyzed.length}件中 ${knowledgeItems.length}件が形式知化対象\n`);
+    console.log(`分析完了: ${analyzed.length}件中 ${knowledgeItems.length}件が形式知化対象\n`);
 
     // Step 3: 出力ファイル名生成
     const timestamp = new Date().toISOString()
@@ -133,10 +141,21 @@ async function main() {
     for (const item of knowledgeItems) {
       categoryCount[item.category] = (categoryCount[item.category] || 0) + 1;
     }
-    
+
     console.log('\nカテゴリ別内訳:');
     for (const [category, count] of Object.entries(categoryCount)) {
       console.log(`  ${category}: ${count}件`);
+    }
+
+    // 汎用性レベル別集計
+    const versatilityCount: Record<string, number> = {};
+    for (const item of knowledgeItems) {
+      versatilityCount[item.versatility] = (versatilityCount[item.versatility] || 0) + 1;
+    }
+
+    console.log('\n汎用性レベル別内訳:');
+    for (const [level, count] of Object.entries(versatilityCount)) {
+      console.log(`  ${level}: ${count}件`);
     }
 
     // 警告があれば表示
