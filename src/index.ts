@@ -149,8 +149,8 @@ async function main() {
       console.log(`使用モデル: ${usedModel}`);
       console.log('※ バッチ処理のため、完了まで数分〜数十分かかります\n');
 
-      const roleResolver = teamProfileManager.hasProfiles()
-        ? (accountId: number) => teamProfileManager.resolveRole(accountId)
+      const roleResolver = teamProfileManager!.hasProfiles()
+        ? (accountId: number) => teamProfileManager!.resolveRole(accountId)
         : undefined;
       const analyzed = await analyzer.analyzeBatch(unanalyzedMessages, roleResolver);
 
