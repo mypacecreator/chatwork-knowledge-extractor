@@ -16,7 +16,7 @@ async function main() {
 
   console.log('=== Chatwork Knowledge Extractor ===\n');
   if (isReanalyze) {
-    console.log('モード: 再出力（キャッシュから出力のみ、API呼び出しなし）\n');
+    console.log('モード: 再出力（キャッシュから出力のみ、Claude API呼び出しなし）\n');
   }
 
   // 環境変数チェック
