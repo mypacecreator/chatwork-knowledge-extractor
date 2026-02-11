@@ -1,0 +1,13 @@
+{
+  "profiles": {
+    "12345": {
+      "name": "山田太郎",
+      "role": "senior"
+    },
+    "67890": {
+      "name": "佐藤花子",
+      "role": "junior"
+    }
+  },
+  "_comment": "account_id（ChatworkのユーザーID）をキーに、role（senior/member/junior）を設定。未登録ユーザーはmember扱い。"
+}
