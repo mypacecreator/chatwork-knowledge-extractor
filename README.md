@@ -7,8 +7,9 @@ Chatworkのチャット履歴から形式知化できる知見を自動抽出し
 - Chatwork APIでメッセージを取得
 - Claude AI (Batch API) で知見を分析・分類
 - 汎用性の判定とタグ付けを自動化
-- Markdown（人間向け）とJSON（機械処理用）の両形式で出力
+- **内部用Markdown**（発言者あり・レビュー用）と**外部用Markdown+JSON**（匿名化済み・共有用）の2段階出力
 - 低コスト（Batch API利用で50%割引）
+- **分析結果キャッシュ**で再出力時のClaude API呼び出しゼロ
 - **定期実行でメッセージを蓄積**（100件以上の履歴を保存可能）
 
 ---
@@ -52,7 +53,6 @@ OUTPUT_DIR=./output
 | `OUTPUT_VERSATILITY` | - | 出力する汎用性レベル。デフォルト`high,medium` |
 | `PROMPT_TEMPLATE_PATH` | - | カスタムプロンプトのパス。デフォルト`prompts/analysis.md` |
 | `FEEDBACK_PATH` | - | フィードバックファイルのパス。デフォルト`feedback/corrections.json` |
-| `ANONYMIZE_SPEAKERS` | - | `true`で発言者名を「発言者1」等に匿名化。デフォルト`false` |
 
 **利用可能なモデル一覧:** https://platform.claude.com/docs/ja/about-claude/models/overview
 
@@ -74,7 +74,7 @@ OUTPUT_DIR=./output
 
 ## 使い方
 
-### 基本的な実行
+### 基本的な実行（通常モード）
 
 ```bash
 # ビルド
@@ -90,28 +90,48 @@ npm start
 npm run dev
 ```
 
-### 実行の流れ
+### 再出力モード（`--reanalyze`）
+
+キャッシュ済みの分析結果から、Claude APIを呼ばずに出力だけを再生成します。
+`OUTPUT_VERSATILITY`の変更を試したい場合や、出力形式を確認したい場合に便利です。
+
+```bash
+# ビルド済みの場合
+npm run reanalyze
+
+# 開発モード
+npm run dev:reanalyze
+```
+
+### 実行の流れ（通常モード）
 
 ```
 === Chatwork Knowledge Extractor ===
 
-[1/4] Chatworkメッセージ取得中...
+[1/5] Chatworkメッセージ取得中...
 [Cache] 統計情報:
   - 保存件数: 150件
   - 最古: 2024/11/15 10:30:00
   - 最新: 2025/02/09 15:45:00
 [Chatwork] 差分取得: キャッシュに150件あり
 [Chatwork] API取得: 5件（新規メッセージ）
-[Cache] 5件の新規メッセージを追加
-[Chatwork] 合計: 155件
 
-[2/4] Claude Batch APIで分析中...
+[2/5] Claude Batch APIで分析中...
 ※ バッチ処理のため、完了まで数分〜数十分かかります
 
-[3/4] Markdown出力中...
-[4/4] JSON出力中...
+[3/5] 分析結果をキャッシュに保存中...
+
+[4/5] 内部用Markdown出力中（発言者あり）...
+[5/5] 外部用出力中（匿名化）...
 
 === 完了 ===
+
+出力ファイル:
+  [内部用・発言者あり]
+  - ./output/internal/knowledge_123456_ルーム名_2025-02-09_15-30-00.md
+  [外部用・匿名化済み]
+  - ./output/external/knowledge_123456_ルーム名_2025-02-09_15-30-00.md
+  - ./output/external/knowledge_123456_ルーム名_2025-02-09_15-30-00.json
 ```
 
 ---
@@ -155,24 +175,27 @@ Chatwork APIは**1回のリクエストで最新100件まで**しか取得でき
 
 ## 出力ファイル
 
-`output/` ディレクトリに以下のファイルが生成されます：
+`output/` ディレクトリに**内部用**と**外部用**の2種類が生成されます：
 
-- `knowledge_YYYY-MM-DD_HH-MM-SS.md` - Markdown形式の知見まとめ
-- `knowledge_YYYY-MM-DD_HH-MM-SS.json` - JSON形式のデータ
+```
+output/
+├── internal/          # 内部用（発言者あり・レビュー用）
+│   └── knowledge_*.md
+└── external/          # 外部用（匿名化済み・共有用）
+    ├── knowledge_*.md
+    └── knowledge_*.json
+```
 
-### Markdown形式
+| 出力先 | 形式 | 発言者名 | 用途 |
+|--------|------|---------|------|
+| `output/internal/` | Markdown | 実名 | チーム内レビュー・振り返り |
+| `output/external/` | Markdown + JSON | 匿名化（「発言者1」等） | 社外共有・AI二次利用 |
 
-カテゴリ別・汎用性順に整理された形式：
+### 内部用Markdown（発言者あり）
+
+チーム内レビュー向け。誰がどの知見を共有したか確認できます：
 
 ```markdown
-# Chatwork知見まとめ
-
-生成日時: 2025/2/9 15:30:00
-
----
-
-## 📋 制作方針・指示出し
-
 ### [汎用性: high] トレイリングスラッシュの統一ルール
 
 - **発言者**: 野村 圭
@@ -182,9 +205,9 @@ Chatwork APIは**1回のリクエストで最新100件まで**しか取得でき
 サイト内のリンクURLにトレイリングスラッシュの有無を統一すること...
 ```
 
-### JSON形式
+### 外部用Markdown / JSON（匿名化済み）
 
-NotebookLMや他の生成AIで二次利用可能：
+NotebookLMや他の生成AIでの二次利用、社外共有向け。発言者名は自動匿名化されます：
 
 ```json
 {
@@ -197,7 +220,7 @@ NotebookLMや他の生成AIで二次利用可能：
       "versatility": "high",
       "title": "トレイリングスラッシュの統一ルール",
       "tags": ["URL設計", "SEO", "コーディング規約"],
-      "speaker": "野村 圭",
+      "speaker": "発言者1",
       "date": "2025-02-07T06:54:40.000Z",
       "formatted_content": "サイト内のリンクURLに..."
     }
@@ -213,8 +236,14 @@ NotebookLMや他の生成AIで二次利用可能：
 
 ```
 cache/
-└── room_{roomId}.json
+├── room_{roomId}.json         # メッセージキャッシュ（Chatwork APIレスポンス）
+└── analysis_{roomId}.json     # 分析結果キャッシュ（Claude API分析済みデータ）
 ```
+
+| ファイル | 内容 | 用途 |
+|---------|------|------|
+| `room_*.json` | 生メッセージ + 分析済みID | Chatwork API呼び出しの削減 |
+| `analysis_*.json` | 分析結果（AnalyzedMessage[]） | `--reanalyze`での再出力、Claude API呼び出しの削減 |
 
 ### キャッシュの確認
 
@@ -226,6 +255,7 @@ cache/
   - 最終更新: 2025-02-09T06:30:00.000Z
   - 最古: 2024/11/15 10:30:00
   - 最新: 2025/02/09 15:45:00
+[Cache] 分析結果キャッシュ: 120件
 ```
 
 ### キャッシュのリセット
@@ -233,7 +263,14 @@ cache/
 最初からやり直したい場合は、キャッシュファイルを削除してください：
 
 ```bash
+# メッセージキャッシュのみリセット（APIからの再取得が必要になる）
 rm cache/room_*.json
+
+# 分析結果キャッシュのみリセット（Claude APIでの再分析が必要になる）
+rm cache/analysis_*.json
+
+# すべてリセット
+rm cache/*.json
 ```
 
 ---
@@ -289,13 +326,14 @@ OUTPUT_VERSATILITY=high,medium,low # すべて含む
 
 元のチャットメッセージ本文（`original_body`）は出力ファイルに含まれません。出力されるのはClaude AIが整形・匿名化済みの`formatted_content`のみです。
 
-### 発言者名の匿名化
+### 発言者名の自動匿名化（2段階出力）
 
-`ANONYMIZE_SPEAKERS=true`を設定すると、出力中の発言者名が「発言者1」「発言者2」等の匿名表記に自動変換されます。
+出力は**内部用**（発言者あり）と**外部用**（匿名化済み）に分かれています：
 
-```env
-ANONYMIZE_SPEAKERS=true
-```
+- `output/internal/` - 発言者名がそのまま出力（チーム内レビュー用）
+- `output/external/` - 発言者名が「発言者1」「発言者2」等に自動変換（共有・AI二次利用用）
+
+外部用出力のみを共有すれば、発言者のプライバシーを保護できます。
 
 ### その他の保護
 

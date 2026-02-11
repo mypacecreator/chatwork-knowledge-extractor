@@ -188,9 +188,9 @@ export class ChatworkClient {
     const dateMatch = extractFrom.match(/^(\d{4})-(\d{2})-(\d{2})$/);
 
     if (dateMatch) {
-      // 日付形式の場合
-      const fromDate = new Date(extractFrom);
-      fromDate.setHours(0, 0, 0, 0);
+      // 日付形式の場合（ローカル日付の0時として解釈）
+      const [, year, month, day] = dateMatch;
+      const fromDate = new Date(Number(year), Number(month) - 1, Number(day), 0, 0, 0, 0);
       const cutoffTime = Math.floor(fromDate.getTime() / 1000);
       const filtered = messages.filter(msg => msg.send_time >= cutoffTime);
       return {
@@ -199,7 +199,7 @@ export class ChatworkClient {
       };
     } else {
       // 数字（日数）の場合
-      const days = parseInt(extractFrom);
+      const days = parseInt(extractFrom, 10);
       if (isNaN(days)) {
         console.warn(`[警告] EXTRACT_FROM の形式が不正です: ${extractFrom}`);
         return { messages, description: '全期間' };

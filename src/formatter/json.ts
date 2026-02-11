@@ -1,11 +1,13 @@
 import type { AnalyzedMessage } from '../claude/analyzer.js';
 import { writeFile, mkdir } from 'fs/promises';
 import { dirname } from 'path';
+import { anonymizeSpeakers } from './anonymize.js';
 
 export interface FormatOptions {
   roomName?: string;
   roomId?: string;
   model?: string;
+  anonymize?: boolean;
 }
 
 interface KnowledgeExport {
@@ -24,10 +26,16 @@ export class JSONFormatter {
    * 分析結果をJSON形式で出力
    */
   async format(messages: AnalyzedMessage[], outputPath: string, options: FormatOptions = {}): Promise<void> {
+    // 匿名化が必要な場合、コピーして発言者を置換
+    let items = messages;
+    if (options.anonymize) {
+      items = anonymizeSpeakers(messages);
+    }
+
     const exportData: KnowledgeExport = {
       export_date: new Date().toISOString(),
-      total_items: messages.length,
-      items: messages
+      total_items: items.length,
+      items
     };
 
     // モデル情報を追加
@@ -48,4 +56,5 @@ export class JSONFormatter {
     await writeFile(outputPath, JSON.stringify(exportData, null, 2), 'utf-8');
     console.log(`[JSON] 出力完了: ${outputPath}`);
   }
+
 }

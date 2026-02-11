@@ -7,7 +7,9 @@
   "scripts": {
     "build": "tsc",
     "start": "node dist/index.js",
-    "dev": "tsx src/index.ts"
+    "dev": "tsx src/index.ts",
+    "reanalyze": "node dist/index.js --reanalyze",
+    "dev:reanalyze": "tsx src/index.ts --reanalyze"
   },
   "keywords": [
     "chatwork",

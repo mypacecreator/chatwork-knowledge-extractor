@@ -2,11 +2,13 @@ import type { AnalyzedMessage } from '../claude/analyzer.js';
 import { writeFile } from 'fs/promises';
 import { mkdir } from 'fs/promises';
 import { dirname } from 'path';
+import { anonymizeSpeakers } from './anonymize.js';
 
 export interface FormatOptions {
   roomName?: string;
   roomId?: string;
   model?: string;
+  anonymize?: boolean;
 }
 
 export class MarkdownFormatter {
@@ -14,14 +16,20 @@ export class MarkdownFormatter {
    * 分析結果をMarkdown形式で出力
    */
   async format(messages: AnalyzedMessage[], outputPath: string, options: FormatOptions = {}): Promise<void> {
+    // 匿名化が必要な場合、コピーして発言者を置換
+    let items = messages;
+    if (options.anonymize) {
+      items = anonymizeSpeakers(messages);
+    }
+
     // カテゴリ別にグループ化
-    const grouped = this.groupByCategory(messages);
+    const grouped = this.groupByCategory(items);
 
     // Markdownを生成
     let markdown = this.generateHeader(options);
 
-    for (const [category, items] of Object.entries(grouped)) {
-      markdown += this.generateCategorySection(category, items);
+    for (const [category, categoryItems] of Object.entries(grouped)) {
+      markdown += this.generateCategorySection(category, categoryItems);
     }
 
     // ファイル出力
