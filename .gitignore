@@ -14,9 +14,11 @@ dist/
 
 # Output files
 output/
-# 内部用出力は特に機密（発言者名あり）
-output/internal/
-feedback/corrections.json
+feedback/
+!feedback/*.example.json
+config/
+!config/*.example.json
+
 
 # Cache (runtime data)
 /cache/

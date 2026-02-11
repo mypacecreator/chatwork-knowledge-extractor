@@ -3,6 +3,7 @@ import { readFileSync, existsSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import type { ChatworkMessage } from '../chatwork/client.js';
+import type { ResolvedRole, TeamRole } from '../team/profiles.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -14,6 +15,7 @@ export interface AnalyzedMessage {
   title: string;
   tags: string[];
   speaker: string;
+  speaker_role?: string;
   date: string;
   formatted_content: string;
 }
@@ -113,7 +115,7 @@ export class ClaudeAnalyzer {
    * Batch APIでメッセージを分析
    * 50%割引が適用される
    */
-  async analyzeBatch(messages: ChatworkMessage[]): Promise<AnalyzedMessage[]> {
+  async analyzeBatch(messages: ChatworkMessage[], roleResolver?: (accountId: number) => ResolvedRole): Promise<AnalyzedMessage[]> {
     console.log(`[Claude] Batch API処理開始: ${messages.length}件のメッセージ`);
 
     // Batch API用のリクエストを作成
@@ -124,7 +126,7 @@ export class ClaudeAnalyzer {
         max_tokens: 1000,
         messages: [{
           role: 'user' as const,
-          content: this.createAnalysisPrompt(msg)
+          content: this.createAnalysisPrompt(msg, roleResolver)
         }]
       }
     }));
@@ -195,16 +197,25 @@ export class ClaudeAnalyzer {
   /**
    * メッセージ分析用のプロンプト作成
    */
-  private createAnalysisPrompt(message: ChatworkMessage): string {
+  private createAnalysisPrompt(message: ChatworkMessage, roleResolver?: (accountId: number) => ResolvedRole): string {
     const date = new Date(message.send_time * 1000).toISOString();
 
     const feedbackText = this.formatFeedbackExamples();
+
+    // ロール情報を解決
+    const resolved = roleResolver?.(message.account.account_id);
+    const roleLabel = resolved?.roleLabel ?? 'Member';
+    const role = resolved?.role ?? 'member';
+    const roleInstruction = this.buildRoleInstruction(role);
 
     // 外部テンプレートがある場合はプレースホルダーを置換
     if (this.promptTemplate) {
       return this.promptTemplate
         .replace(/\{\{message_id\}\}/g, message.message_id)
         .replace(/\{\{speaker\}\}/g, message.account.name)
+        .replace(/\{\{speaker_role\}\}/g, role)
+        .replace(/\{\{speaker_role_label\}\}/g, roleLabel)
+        .replace(/\{\{role_instruction\}\}/g, roleInstruction)
         .replace(/\{\{date\}\}/g, date)
         .replace(/\{\{body\}\}/g, message.body)
         .replace(/\{\{feedback_examples\}\}/g, feedbackText);
@@ -214,11 +225,11 @@ export class ClaudeAnalyzer {
     return `あなたはWeb制作チームのチャット履歴から**汎用的な**形式知を抽出するアシスタントです。
 
 【重要】案件固有の内容は除外し、他の案件でも活用できる知見のみを抽出してください。
-
+${roleInstruction}
 以下のメッセージを分析し、JSON形式で結果を返してください。
 
 【メッセージ】
-発言者: ${message.account.name}
+発言者: ${message.account.name} (Role: ${roleLabel})
 日時: ${date}
 内容: ${message.body}
 
@@ -294,9 +305,37 @@ ${feedbackText}
   "title": "タイトル",
   "tags": ["タグ1", "タグ2", "タグ3"],
   "speaker": "${message.account.name}",
+  "speaker_role": "${role}",
   "date": "${date}",
   "formatted_content": "整形後の内容"
 }`;
+  }
+
+  /**
+   * ロールに応じた分析指示を生成
+   */
+  private buildRoleInstruction(role: TeamRole): string {
+    switch (role) {
+      case 'senior':
+        return `
+【発言者ロールに基づく分析指示】
+この発言者はSenior（経験豊富なシニアメンバー）です。
+- 発言内容を「標準（Standard）」として扱ってください。
+- 背景にある理由や原則を深く掘り下げ、汎用性を高く見積もってください。
+- 技術的な判断や方針は、長期的な保守性やリスクを予見した上での知見である可能性が高いです。
+`;
+      case 'junior':
+        return `
+【発言者ロールに基づく分析指示】
+この発言者はJunior（経験の浅いメンバー）です。
+- 発言内容を「事例（Case Study）」として扱ってください。
+- 内容が技術的に正しいか、偏っていないかを厳しく検証してください。
+- 暫定的な対応や場当たり的な解決策でないか注意深く判断してください。
+- 疑わしい場合は、汎用性を低めに判定してください。
+`;
+      default:
+        return '';
+    }
   }
 
   private sleep(ms: number): Promise<void> {
