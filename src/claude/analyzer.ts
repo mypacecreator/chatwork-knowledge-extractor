@@ -130,12 +130,27 @@ export class ClaudeAnalyzer {
     }));
 
     // Batch作成
+    console.log(`[Claude] Batch作成リクエスト送信中...`);
+    const batchCreateStartTime = Date.now();
+
     const batch = await this.client.beta.messages.batches.create({
       requests
     });
 
-    console.log(`[Claude] Batch作成完了: ${batch.id}`);
+    const batchCreateElapsed = Date.now() - batchCreateStartTime;
+    console.log(`[Claude] Batch作成完了: ${batch.id} (作成時間: ${batchCreateElapsed}ms)`);
     console.log(`[Claude] ステータス: ${batch.processing_status}`);
+    console.log(`[Claude] リクエスト数: ${requests.length}件`);
+
+    // created_atとexpires_atを表示
+    if (batch.created_at) {
+      const createdAt = new Date(batch.created_at);
+      console.log(`[Claude] 作成日時: ${createdAt.toLocaleString('ja-JP')}`);
+    }
+    if (batch.expires_at) {
+      const expiresAt = new Date(batch.expires_at);
+      console.log(`[Claude] 有効期限: ${expiresAt.toLocaleString('ja-JP')}`);
+    }
 
     // Batch完了を待機
     const completedBatch = await this.waitForBatchCompletion(batch.id);
@@ -144,8 +159,13 @@ export class ClaudeAnalyzer {
     const results = await this.client.beta.messages.batches.results(completedBatch.id);
     
     // 結果をパース
+    console.log(`[Claude] 結果を取得中...`);
     const analyzed: AnalyzedMessage[] = [];
+    let parseErrorCount = 0;
+    let processedCount = 0;
+
     for await (const result of results) {
+      processedCount++;
       if (result.result.type === 'succeeded') {
         const content = result.result.message.content[0];
         if (content.type === 'text') {
@@ -160,13 +180,26 @@ export class ClaudeAnalyzer {
             const parsed = JSON.parse(jsonText);
             analyzed.push(parsed);
           } catch (e) {
+            parseErrorCount++;
             console.error(`[Claude] JSON parse error for ${result.custom_id}`);
-            console.error(`[Claude] Raw response: ${content.text.substring(0, 500)}`);
+            console.error(`[Claude] Error: ${e instanceof Error ? e.message : String(e)}`);
+            console.error(`[Claude] Raw response (first 500 chars): ${content.text.substring(0, 500)}`);
           }
         }
+      } else if (result.result.type === 'errored') {
+        parseErrorCount++;
+        console.error(`[Claude] API error for ${result.custom_id}: ${result.result.error.error.type}`);
+        if ('message' in result.result.error.error) {
+          console.error(`[Claude] Error message: ${result.result.error.error.message}`);
+        }
       } else {
-        console.error(`[Claude] Failed: ${result.custom_id}`);
+        parseErrorCount++;
+        console.error(`[Claude] Unexpected result type for ${result.custom_id}: ${result.result.type}`);
       }
+    }
+
+    if (parseErrorCount > 0) {
+      console.warn(`\n[警告] ${parseErrorCount}/${processedCount}件の処理に失敗しました`);
     }
 
     console.log(`[Claude] 分析完了: ${analyzed.length}件`);
@@ -177,18 +210,58 @@ export class ClaudeAnalyzer {
    * Batch完了を待機
    */
   private async waitForBatchCompletion(batchId: string): Promise<Anthropic.Beta.Messages.BetaMessageBatch> {
-    let batch = await this.client.beta.messages.batches.retrieve(batchId);
-    const totalRequests = batch.request_counts.processing + batch.request_counts.succeeded + batch.request_counts.errored + batch.request_counts.canceled + batch.request_counts.expired;
+    const startTime = Date.now();
+    const TIMEOUT_MS = 30 * 60 * 1000; // 30分でタイムアウト警告
+    const POLLING_INTERVAL_MS = 10000; // 10秒ごとにチェック
 
+    let batch = await this.client.beta.messages.batches.retrieve(batchId);
+
+    // 送信したリクエストの総数を計算（created_atから推定、またはrequest_countsの合計）
+    const totalRequests = batch.request_counts.processing +
+                         batch.request_counts.succeeded +
+                         batch.request_counts.errored +
+                         batch.request_counts.canceled +
+                         batch.request_counts.expired;
+
+    console.log(`[Claude] Batch処理待機開始 (合計: ${totalRequests}件)`);
+    console.log(`[Claude] 初期ステータス: ${batch.processing_status}`);
+    console.log(`[Claude] 詳細: processing=${batch.request_counts.processing}, succeeded=${batch.request_counts.succeeded}, errored=${batch.request_counts.errored}`);
+
+    // expires_atを表示（24時間後に期限切れ）
+    if (batch.expires_at) {
+      const expiresAt = new Date(batch.expires_at);
+      console.log(`[Claude] 有効期限: ${expiresAt.toLocaleString('ja-JP')}`);
+    }
+
+    let pollCount = 0;
     while (batch.processing_status === 'in_progress') {
-      console.log(`[Claude] 処理中... (${batch.request_counts.processing}/${totalRequests})`);
-      await this.sleep(10000); // 10秒ごとにチェック
+      pollCount++;
+      const elapsedMinutes = Math.floor((Date.now() - startTime) / 60000);
+      const completedRequests = batch.request_counts.succeeded + batch.request_counts.errored;
+
+      console.log(`[Claude] 処理中... (完了: ${completedRequests}/${totalRequests}, 経過: ${elapsedMinutes}分)`);
+
+      // タイムアウト警告
+      if (Date.now() - startTime > TIMEOUT_MS) {
+        console.warn(`\n[警告] Batch処理が30分以上経過しています`);
+        console.warn(`[警告] Batch ID: ${batchId}`);
+        console.warn(`[警告] 現在のステータス: processing=${batch.request_counts.processing}, succeeded=${batch.request_counts.succeeded}, errored=${batch.request_counts.errored}`);
+        console.warn(`[警告] Anthropic Batch APIは通常24時間以内に完了しますが、異常に遅い場合はAPI制限やシステム障害の可能性があります`);
+        console.warn(`[警告] https://status.anthropic.com/ でAPIステータスを確認してください\n`);
+      }
+
+      await this.sleep(POLLING_INTERVAL_MS);
       batch = await this.client.beta.messages.batches.retrieve(batchId);
     }
 
-    console.log(`[Claude] Batch完了: ${batch.processing_status}`);
+    const totalElapsedMinutes = Math.floor((Date.now() - startTime) / 60000);
+    console.log(`\n[Claude] Batch完了: ${batch.processing_status} (処理時間: ${totalElapsedMinutes}分)`);
     console.log(`[Claude] 成功: ${batch.request_counts.succeeded}, 失敗: ${batch.request_counts.errored}`);
-    
+
+    if (batch.request_counts.errored > 0) {
+      console.warn(`[警告] ${batch.request_counts.errored}件のリクエストが失敗しました`);
+    }
+
     return batch;
   }
 
