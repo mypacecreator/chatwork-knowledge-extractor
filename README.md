@@ -11,6 +11,7 @@ Chatworkのチャット履歴から形式知化できる知見を自動抽出し
 - 低コスト（Batch API利用で50%割引）
 - **分析結果キャッシュ**で再出力時のClaude API呼び出しゼロ
 - **定期実行でメッセージを蓄積**（100件以上の履歴を保存可能）
+- **チームプロファイル**で発言者のロール（senior/junior）に応じた重み付け分析
 
 ---
 
@@ -53,6 +54,7 @@ OUTPUT_DIR=./output
 | `OUTPUT_VERSATILITY` | - | 出力する汎用性レベル。デフォルト`high,medium` |
 | `PROMPT_TEMPLATE_PATH` | - | カスタムプロンプトのパス。デフォルト`prompts/analysis.md` |
 | `FEEDBACK_PATH` | - | フィードバックファイルのパス。デフォルト`feedback/corrections.json` |
+| `TEAM_PROFILES_PATH` | - | チームプロファイルのパス。デフォルト`config/team-profiles.json` |
 
 **利用可能なモデル一覧:** https://platform.claude.com/docs/ja/about-claude/models/overview
 
@@ -385,6 +387,57 @@ cp feedback/corrections.example.json feedback/corrections.json
 | `reason` | なぜそのレベルが正しいかの理由 |
 
 フィードバックを蓄積していくことで、チーム固有の判断基準をAIに学習させることができます。
+
+---
+
+## チームプロファイル（発言者ロールによる重み付け）
+
+チームメンバーの役割（senior/member/junior）を設定すると、AIが発言者の経験レベルに応じて分析の重み付けを自動調整します。
+
+### セットアップ
+
+```bash
+cp config/team-profiles.example.json config/team-profiles.json
+```
+
+`config/team-profiles.json` にChatworkの `account_id` とロールの対応を記述します：
+
+```json
+{
+  "profiles": {
+    "12345": {
+      "name": "山田太郎",
+      "role": "senior"
+    },
+    "67890": {
+      "name": "佐藤花子",
+      "role": "junior"
+    }
+  }
+}
+```
+
+### ロール別の分析動作
+
+| ロール | 分析方針 | 説明 |
+|--------|----------|------|
+| `senior` | 標準（Standard）として扱う | 汎用性を高く見積もり、背景の原則を深く掘り下げる |
+| `member` | 通常の分析（追加指示なし） | デフォルト。未登録ユーザーもこの扱い |
+| `junior` | 事例（Case Study）として扱う | 技術的な正確性を厳しく検証し、汎用性を低めに判定 |
+
+### account_id の確認方法
+
+Chatwork APIでルームメンバーを取得して確認できます：
+
+```bash
+curl -H "X-ChatWorkToken: YOUR_TOKEN" \
+  "https://api.chatwork.com/v2/rooms/YOUR_ROOM_ID/members"
+```
+
+### 注意事項
+
+- プロファイル未設定（ファイルなし）の場合、全員 `member` として従来通り分析されます
+- 分析結果の `speaker_role` フィールドに適用されたロールが記録されます
 
 ---
 
