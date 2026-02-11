@@ -178,7 +178,7 @@ export class MessageCacheManager {
   /**
    * 分析結果をキャッシュに保存（既存結果とマージ）
    */
-  async saveAnalysisResults(roomId: string, results: AnalyzedMessage[]): Promise<void> {
+  async saveAnalysisResults(roomId: string, results: AnalyzedMessage[], model?: string): Promise<void> {
     const cachePath = this.getAnalysisCachePath(roomId);
 
     // ディレクトリがなければ作成
@@ -194,6 +194,7 @@ export class MessageCacheManager {
     const cacheData: AnalysisCache = {
       roomId,
       lastUpdated: new Date().toISOString(),
+      model,
       results: merged
     };
 
@@ -205,19 +206,26 @@ export class MessageCacheManager {
    * キャッシュから分析結果を読み込む
    */
   async loadAnalysisResults(roomId: string): Promise<AnalyzedMessage[]> {
+    const cache = await this.loadAnalysisCache(roomId);
+    return cache?.results || [];
+  }
+
+  /**
+   * キャッシュ全体（model情報含む）を読み込む
+   */
+  async loadAnalysisCache(roomId: string): Promise<AnalysisCache | null> {
     const cachePath = this.getAnalysisCachePath(roomId);
 
     if (!existsSync(cachePath)) {
-      return [];
+      return null;
     }
 
     try {
       const content = await readFile(cachePath, 'utf-8');
-      const cache = JSON.parse(content) as AnalysisCache;
-      return cache.results;
+      return JSON.parse(content) as AnalysisCache;
     } catch (e) {
       console.error(`[Cache] 分析結果読み込みエラー: ${e}`);
-      return [];
+      return null;
     }
   }
 
@@ -261,5 +269,6 @@ export class MessageCacheManager {
 export interface AnalysisCache {
   roomId: string;
   lastUpdated: string;
+  model?: string;
   results: AnalyzedMessage[];
 }

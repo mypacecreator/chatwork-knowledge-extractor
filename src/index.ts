@@ -71,15 +71,26 @@ async function main() {
 
       console.log(`キャッシュから${cachedResults.length}件の分析結果を読み込み\n`);
 
-      // フィルタリング
+      // 期間フィルタ（キャッシュの分析結果にも適用）
+      let filteredResults = cachedResults;
+      if (extractFromRaw) {
+        const beforeCount = filteredResults.length;
+        filteredResults = filterAnalysisResultsByDate(filteredResults, extractFromRaw);
+        console.log(`期間フィルタ適用: ${beforeCount}件 → ${filteredResults.length}件`);
+      }
+
+      // 汎用性フィルタ
       console.log(`汎用性フィルタ: ${outputVersatility.join(', ')} のみ出力`);
-      knowledgeItems = cachedResults.filter(
+      knowledgeItems = filteredResults.filter(
         item => item.versatility !== 'exclude'
           && item.category !== '除外対象'
           && outputVersatility.includes(item.versatility)
       );
 
-      usedModel = claudeModel || '(キャッシュから再出力)';
+      // キャッシュからモデル情報を取得
+      const analysisCache = await cacheManager.loadAnalysisCache(roomId);
+      usedModel = analysisCache?.model || claudeModel || '(不明)';
+      console.log(`分析モデル: ${usedModel}`);
       console.log(`フィルタ後: ${knowledgeItems.length}件が形式知化対象\n`);
 
     } else {
@@ -141,12 +152,19 @@ async function main() {
       const newlyAnalyzedIds = unanalyzedMessages.map(m => m.message_id);
       await cacheManager.markAsAnalyzed(roomId, newlyAnalyzedIds);
 
-      // 分析結果をキャッシュに保存
+      // 分析結果をキャッシュに保存（モデル情報付き）
       console.log('\n[3/5] 分析結果をキャッシュに保存中...\n');
-      await cacheManager.saveAnalysisResults(roomId, analyzed);
+      await cacheManager.saveAnalysisResults(roomId, analyzed, usedModel);
 
       // 既存キャッシュ + 新規分析結果をマージしてフィルタリング
-      const allResults = await cacheManager.loadAnalysisResults(roomId);
+      let allResults = await cacheManager.loadAnalysisResults(roomId);
+
+      // 期間フィルタ（出力対象にも適用）
+      if (extractFromRaw) {
+        const beforeCount = allResults.length;
+        allResults = filterAnalysisResultsByDate(allResults, extractFromRaw);
+        console.log(`期間フィルタ適用（出力対象）: ${beforeCount}件 → ${allResults.length}件`);
+      }
 
       console.log(`汎用性フィルタ: ${outputVersatility.join(', ')} のみ出力`);
 
@@ -262,6 +280,32 @@ async function main() {
     console.error(error);
     process.exit(1);
   }
+}
+
+/**
+ * 分析結果をEXTRACT_FROM形式で期間フィルタ
+ * item.date（ISO文字列）を使って判定
+ */
+function filterAnalysisResultsByDate(results: AnalyzedMessage[], extractFrom: string): AnalyzedMessage[] {
+  const dateMatch = extractFrom.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+
+  let cutoffTime: number;
+  if (dateMatch) {
+    const fromDate = new Date(extractFrom);
+    fromDate.setHours(0, 0, 0, 0);
+    cutoffTime = fromDate.getTime();
+  } else {
+    const days = parseInt(extractFrom);
+    if (isNaN(days)) {
+      return results;
+    }
+    cutoffTime = Date.now() - (days * 24 * 60 * 60 * 1000);
+  }
+
+  return results.filter(item => {
+    const itemTime = new Date(item.date).getTime();
+    return itemTime >= cutoffTime;
+  });
 }
 
 main();

@@ -1,6 +1,7 @@
 import type { AnalyzedMessage } from '../claude/analyzer.js';
 import { writeFile, mkdir } from 'fs/promises';
 import { dirname } from 'path';
+import { anonymizeSpeakers } from './anonymize.js';
 
 export interface FormatOptions {
   roomName?: string;
@@ -28,7 +29,7 @@ export class JSONFormatter {
     // 匿名化が必要な場合、コピーして発言者を置換
     let items = messages;
     if (options.anonymize) {
-      items = this.anonymizeItems(messages);
+      items = anonymizeSpeakers(messages);
     }
 
     const exportData: KnowledgeExport = {
@@ -56,19 +57,4 @@ export class JSONFormatter {
     console.log(`[JSON] 出力完了: ${outputPath}`);
   }
 
-  /**
-   * 発言者名を匿名化したコピーを返す（元データは変更しない）
-   */
-  private anonymizeItems(messages: AnalyzedMessage[]): AnalyzedMessage[] {
-    const speakerMap = new Map<string, string>();
-    let count = 0;
-
-    return messages.map(item => {
-      if (!speakerMap.has(item.speaker)) {
-        count++;
-        speakerMap.set(item.speaker, `発言者${count}`);
-      }
-      return { ...item, speaker: speakerMap.get(item.speaker)! };
-    });
-  }
 }
