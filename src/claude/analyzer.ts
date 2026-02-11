@@ -330,7 +330,7 @@ export class ClaudeAnalyzer {
 
     let batch = await this.client.beta.messages.batches.retrieve(batchId);
 
-    // 送信したリクエストの総数を計算（created_atから推定、またはrequest_countsの合計）
+    // 送信したリクエストの総数を計算（request_countsの合計）
     const totalRequests = batch.request_counts.processing +
                          batch.request_counts.succeeded +
                          batch.request_counts.errored +
@@ -348,20 +348,27 @@ export class ClaudeAnalyzer {
     }
 
     let pollCount = 0;
+    let timeoutWarningShown = false; // 警告を一度だけ表示するフラグ
     while (batch.processing_status === 'in_progress') {
       pollCount++;
       const elapsedMinutes = Math.floor((Date.now() - startTime) / 60000);
-      const completedRequests = batch.request_counts.succeeded + batch.request_counts.errored;
+
+      // 完了済みリクエスト数（succeeded, errored, canceled, expired を含む）
+      const completedRequests = batch.request_counts.succeeded +
+                               batch.request_counts.errored +
+                               batch.request_counts.canceled +
+                               batch.request_counts.expired;
 
       console.log(`[Claude] 処理中... (完了: ${completedRequests}/${totalRequests}, 経過: ${elapsedMinutes}分)`);
 
-      // タイムアウト警告
-      if (Date.now() - startTime > TIMEOUT_MS) {
+      // タイムアウト警告（一度だけ表示）
+      if (!timeoutWarningShown && Date.now() - startTime > TIMEOUT_MS) {
         console.warn(`\n[警告] Batch処理が30分以上経過しています`);
         console.warn(`[警告] Batch ID: ${batchId}`);
         console.warn(`[警告] 現在のステータス: processing=${batch.request_counts.processing}, succeeded=${batch.request_counts.succeeded}, errored=${batch.request_counts.errored}`);
         console.warn(`[警告] Anthropic Batch APIは通常24時間以内に完了しますが、異常に遅い場合はAPI制限やシステム障害の可能性があります`);
         console.warn(`[警告] https://status.anthropic.com/ でAPIステータスを確認してください\n`);
+        timeoutWarningShown = true;
       }
 
       await this.sleep(POLLING_INTERVAL_MS);

@@ -152,7 +152,7 @@ async function main() {
       const { filtered: filteredMessages, stats } = filterMessages(unanalyzedMessages, filterConfig);
       console.log(`  - 対象: ${stats.total}件`);
       console.log(`  - スキップ: ${stats.skipped}件 (短すぎる/定型文)`);
-      console.log(`  - 切り詰め: ${stats.truncated}件 (500文字超)`);
+      console.log(`  - 切り詰め: ${stats.truncated}件 (${filterConfig.maxLength}文字超)`);
       console.log(`  - API送信: ${filteredMessages.length}件\n`);
 
       if (stats.skipped > 0) {

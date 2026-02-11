@@ -4,8 +4,8 @@
  */
 
 export interface FilterConfig {
-  minLength: number;        // 最小文字数（デフォルト: 5）
-  maxLength: number;        // 最大文字数（デフォルト: 500、超過分は切り詰め）
+  minLength: number;        // 最小文字数（デフォルト: 10）
+  maxLength: number;        // 最大文字数（デフォルト: 300、超過分は切り詰め）
   excludePatterns: string[]; // 除外パターン（正規表現文字列）
 }
 
@@ -105,27 +105,32 @@ export function shouldSkipMessage(
 
 /**
  * メッセージ本文を切り詰め（長すぎる場合）
+ * @param body メッセージ本文
+ * @param maxLength 最大文字数（suffix含めてこの長さ以下にする）
  */
 export function truncateMessage(
   body: string,
-  maxLength: number = 500
+  maxLength: number = 300  // DEFAULT_FILTER_CONFIG.maxLength に統一
 ): { body: string; truncated: boolean } {
   if (body.length <= maxLength) {
     return { body, truncated: false };
   }
 
+  const suffix = '…（以下省略）';
+  const targetLength = maxLength - suffix.length; // suffix分を差し引く
+
   // 文の途中で切れないよう、最後の句点・改行で切る
-  const truncated = body.substring(0, maxLength);
+  const truncated = body.substring(0, targetLength);
   const lastPeriod = Math.max(
     truncated.lastIndexOf('。'),
     truncated.lastIndexOf('\n'),
     truncated.lastIndexOf('、')
   );
 
-  const cutPoint = lastPeriod > maxLength * 0.7 ? lastPeriod + 1 : maxLength;
+  const cutPoint = lastPeriod > targetLength * 0.7 ? lastPeriod + 1 : targetLength;
 
   return {
-    body: body.substring(0, cutPoint).trim() + '…（以下省略）',
+    body: body.substring(0, cutPoint).trim() + suffix,
     truncated: true,
   };
 }
