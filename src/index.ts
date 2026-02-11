@@ -54,7 +54,7 @@ async function main() {
   // 警告を収集
   const allWarnings: string[] = [];
   const cacheManager = new MessageCacheManager();
-  const teamProfileManager = new TeamProfileManager(teamProfilesPath);
+  const teamProfileManager = !isReanalyze ? new TeamProfileManager(teamProfilesPath) : null;
 
   try {
     let knowledgeItems: AnalyzedMessage[];
