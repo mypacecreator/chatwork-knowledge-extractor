@@ -291,12 +291,14 @@ function filterAnalysisResultsByDate(results: AnalyzedMessage[], extractFrom: st
 
   let cutoffTime: number;
   if (dateMatch) {
-    const fromDate = new Date(extractFrom);
-    fromDate.setHours(0, 0, 0, 0);
+    // YYYY-MM-DDをローカル日付の0時として解釈
+    const [, year, month, day] = dateMatch;
+    const fromDate = new Date(Number(year), Number(month) - 1, Number(day), 0, 0, 0, 0);
     cutoffTime = fromDate.getTime();
   } else {
-    const days = parseInt(extractFrom);
+    const days = parseInt(extractFrom, 10);
     if (isNaN(days)) {
+      console.warn(`[警告] EXTRACT_FROM の形式が不正です: ${extractFrom}`);
       return results;
     }
     cutoffTime = Date.now() - (days * 24 * 60 * 60 * 1000);
