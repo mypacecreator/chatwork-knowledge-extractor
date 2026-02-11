@@ -246,18 +246,36 @@ export class ClaudeAnalyzer {
 
           const content = response.content[0];
           if (content.type === 'text') {
-            // JSONを抽出してパース
+            // JSONを抽出してパース（複数パターンに対応）
             let jsonText = content.text.trim();
-            const jsonMatch = jsonText.match(/```(?:json)?\s*([\s\S]*?)```/);
+
+            // パターン1: ```json ... ``` 形式
+            let jsonMatch = jsonText.match(/```json\s*([\s\S]*?)```/);
             if (jsonMatch) {
               jsonText = jsonMatch[1].trim();
+            } else {
+              // パターン2: ``` ... ``` 形式（json指定なし）
+              jsonMatch = jsonText.match(/```\s*([\s\S]*?)```/);
+              if (jsonMatch) {
+                jsonText = jsonMatch[1].trim();
+              }
             }
 
-            const parsed = JSON.parse(jsonText);
-            return { success: true, data: parsed, messageId: msg.message_id };
+            // JSON文字列がまだ```で始まっている場合は除去（念のため）
+            jsonText = jsonText.replace(/^```(json)?/gm, '').replace(/```$/gm, '').trim();
+
+            try {
+              const parsed = JSON.parse(jsonText);
+              return { success: true, data: parsed, messageId: msg.message_id };
+            } catch (parseError) {
+              console.error(`[Claude] JSON parse error for message ${msg.message_id}`);
+              console.error(`[Claude] Parse error: ${parseError instanceof Error ? parseError.message : String(parseError)}`);
+              console.error(`[Claude] Raw response (first 500 chars): ${content.text.substring(0, 500)}`);
+              return { success: false, messageId: msg.message_id, error: parseError };
+            }
           }
         } catch (e) {
-          console.error(`[Claude] Error for message ${msg.message_id}: ${e instanceof Error ? e.message : String(e)}`);
+          console.error(`[Claude] API error for message ${msg.message_id}: ${e instanceof Error ? e.message : String(e)}`);
           return { success: false, messageId: msg.message_id, error: e };
         }
         return { success: false, messageId: msg.message_id };
