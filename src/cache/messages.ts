@@ -2,6 +2,7 @@ import { readFile, writeFile, mkdir } from 'fs/promises';
 import { existsSync } from 'fs';
 import { join, dirname } from 'path';
 import type { ChatworkMessage } from '../chatwork/client.js';
+import type { AnalyzedMessage } from '../claude/analyzer.js';
 
 export interface MessageCache {
   roomId: string;
@@ -167,4 +168,98 @@ export class MessageCacheManager {
     const cache = await this.load(roomId);
     return cache?.analyzedMessageIds || [];
   }
+
+  // === 分析結果キャッシュ ===
+
+  private getAnalysisCachePath(roomId: string): string {
+    return join(this.cacheDir, `analysis_${roomId}.json`);
+  }
+
+  /**
+   * 分析結果をキャッシュに保存（既存結果とマージ）
+   */
+  async saveAnalysisResults(roomId: string, results: AnalyzedMessage[]): Promise<void> {
+    const cachePath = this.getAnalysisCachePath(roomId);
+
+    // ディレクトリがなければ作成
+    const dir = dirname(cachePath);
+    if (!existsSync(dir)) {
+      await mkdir(dir, { recursive: true });
+    }
+
+    // 既存結果を読み込んでマージ
+    const existing = await this.loadAnalysisResults(roomId);
+    const merged = this.mergeAnalysisResults(existing, results);
+
+    const cacheData: AnalysisCache = {
+      roomId,
+      lastUpdated: new Date().toISOString(),
+      results: merged
+    };
+
+    await writeFile(cachePath, JSON.stringify(cacheData, null, 2), 'utf-8');
+    console.log(`[Cache] 分析結果を保存: ${merged.length}件 (新規${results.length}件)`);
+  }
+
+  /**
+   * キャッシュから分析結果を読み込む
+   */
+  async loadAnalysisResults(roomId: string): Promise<AnalyzedMessage[]> {
+    const cachePath = this.getAnalysisCachePath(roomId);
+
+    if (!existsSync(cachePath)) {
+      return [];
+    }
+
+    try {
+      const content = await readFile(cachePath, 'utf-8');
+      const cache = JSON.parse(content) as AnalysisCache;
+      return cache.results;
+    } catch (e) {
+      console.error(`[Cache] 分析結果読み込みエラー: ${e}`);
+      return [];
+    }
+  }
+
+  /**
+   * 分析結果をマージ（message_idで重複排除、新しい結果を優先）
+   */
+  private mergeAnalysisResults(
+    existing: AnalyzedMessage[],
+    newResults: AnalyzedMessage[]
+  ): AnalyzedMessage[] {
+    const resultMap = new Map<string, AnalyzedMessage>();
+
+    // 既存結果をセット
+    for (const item of existing) {
+      resultMap.set(item.message_id, item);
+    }
+
+    // 新しい結果で上書き
+    for (const item of newResults) {
+      resultMap.set(item.message_id, item);
+    }
+
+    return Array.from(resultMap.values());
+  }
+
+  /**
+   * 分析結果キャッシュの統計を表示
+   */
+  async showAnalysisStats(roomId: string): Promise<void> {
+    const results = await this.loadAnalysisResults(roomId);
+
+    if (results.length === 0) {
+      console.log('[Cache] 分析結果キャッシュなし');
+      return;
+    }
+
+    console.log(`[Cache] 分析結果キャッシュ: ${results.length}件`);
+  }
+}
+
+export interface AnalysisCache {
+  roomId: string;
+  lastUpdated: string;
+  results: AnalyzedMessage[];
 }

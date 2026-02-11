@@ -14,6 +14,8 @@ dist/
 
 # Output files
 output/
+# 内部用出力は特に機密（発言者名あり）
+output/internal/
 feedback/corrections.json
 
 # Cache (runtime data)
