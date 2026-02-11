@@ -5,6 +5,7 @@ import { MarkdownFormatter } from './formatter/markdown.js';
 import { JSONFormatter } from './formatter/json.js';
 import { MessageCacheManager } from './cache/messages.js';
 import { TeamProfileManager } from './team/profiles.js';
+import { filterMessages } from './utils/messageFilter.js';
 import { join } from 'path';
 
 // 環境変数読み込み
@@ -37,6 +38,15 @@ async function main() {
   // EXTRACT_FROM: 日付形式（YYYY-MM-DD）または日数
   // 後方互換のためDAYS_TO_EXTRACTもサポート
   const extractFromRaw = process.env.EXTRACT_FROM || process.env.DAYS_TO_EXTRACT;
+
+  // メッセージフィルタ設定（環境変数で上書き可能）
+  const filterConfig = {
+    minLength: parseInt(process.env.FILTER_MIN_LENGTH || '5'),
+    maxLength: parseInt(process.env.FILTER_MAX_LENGTH || '500'),
+  };
+
+  // Claude API種別の選択
+  const claudeApiMode = (process.env.CLAUDE_API_MODE || 'batch') as 'batch' | 'realtime';
 
   // reanalyzeモードではClaude APIキーは不要
   if (!chatworkToken || !roomId) {
@@ -137,25 +147,52 @@ async function main() {
         return;
       }
 
-      // Step 2: Claude Batch APIで分析（未分析分のみ）
-      console.log('[2/5] Claude Batch APIで分析中...\n');
+      // メッセージの事前フィルタリング（知見が含まれない可能性が高いものを除外）
+      console.log('事前フィルタリング中...');
+      const { filtered: filteredMessages, stats } = filterMessages(unanalyzedMessages, filterConfig);
+      console.log(`  - 対象: ${stats.total}件`);
+      console.log(`  - スキップ: ${stats.skipped}件 (短すぎる/定型文)`);
+      console.log(`  - 切り詰め: ${stats.truncated}件 (${filterConfig.maxLength}文字超)`);
+      console.log(`  - API送信: ${filteredMessages.length}件\n`);
+
+      if (stats.skipped > 0) {
+        console.log('スキップ理由の内訳:');
+        for (const [reason, count] of Object.entries(stats.reasons)) {
+          console.log(`  - ${reason}: ${count}件`);
+        }
+        console.log('');
+      }
+
+      if (filteredMessages.length === 0) {
+        console.log('フィルタリング後、分析対象のメッセージがありません。');
+        return;
+      }
+
+      // Step 2: Claude APIで分析（フィルタリング済みメッセージのみ）
+      console.log('[2/5] Claude APIで分析中...\n');
 
       const analyzer = new ClaudeAnalyzer(claudeApiKey!, {
         promptTemplatePath,
         feedbackPath,
-        model: claudeModel
+        model: claudeModel,
+        apiMode: claudeApiMode
       });
       usedModel = analyzer.getModel();
       console.log(`使用モデル: ${usedModel}`);
-      console.log('※ バッチ処理のため、完了まで数分〜数十分かかります\n');
 
-      const roleResolver = teamProfileManager.hasProfiles()
-        ? (accountId: number) => teamProfileManager.resolveRole(accountId)
+      if (claudeApiMode === 'batch') {
+        console.log('※ Batch API: 50%割引、処理時間は数分〜24時間\n');
+      } else {
+        console.log('※ Realtime API: 通常価格、処理時間は数秒〜数分\n');
+      }
+
+      const roleResolver = teamProfileManager!.hasProfiles()
+        ? (accountId: number) => teamProfileManager!.resolveRole(accountId)
         : undefined;
-      const analyzed = await analyzer.analyzeBatch(unanalyzedMessages, roleResolver);
+      const analyzed = await analyzer.analyze(filteredMessages, roleResolver);
 
-      // 分析したメッセージIDを記録
-      const newlyAnalyzedIds = unanalyzedMessages.map(m => m.message_id);
+      // 分析したメッセージIDを記録（フィルタリング済みメッセージのみ）
+      const newlyAnalyzedIds = filteredMessages.map(m => m.message_id);
       await cacheManager.markAsAnalyzed(roomId, newlyAnalyzedIds);
 
       // 分析結果をキャッシュに保存（モデル情報付き）

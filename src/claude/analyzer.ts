@@ -24,6 +24,7 @@ export interface AnalyzerOptions {
   promptTemplatePath?: string;
   feedbackPath?: string;
   model?: string;
+  apiMode?: 'batch' | 'realtime'; // API種別の選択
 }
 
 export interface FeedbackCorrection {
@@ -39,11 +40,13 @@ export class ClaudeAnalyzer {
   private client: Anthropic;
   private promptTemplate: string | null = null;
   private model: string;
+  private apiMode: 'batch' | 'realtime';
   private feedbackExamples: FeedbackCorrection[] = [];
 
   constructor(apiKey: string, options: AnalyzerOptions = {}) {
     this.client = new Anthropic({ apiKey });
     this.model = options.model || DEFAULT_MODEL;
+    this.apiMode = options.apiMode || 'batch'; // デフォルトはbatch（後方互換性）
     this.loadPromptTemplate(options.promptTemplatePath);
     this.loadFeedback(options.feedbackPath);
   }
@@ -123,7 +126,7 @@ export class ClaudeAnalyzer {
       custom_id: `msg_${msg.message_id}`,
       params: {
         model: this.model,
-        max_tokens: 1000,
+        max_tokens: 400, // 1000→400に削減（JSON出力は通常200-300トークン）
         messages: [{
           role: 'user' as const,
           content: this.createAnalysisPrompt(msg, roleResolver)
@@ -132,12 +135,27 @@ export class ClaudeAnalyzer {
     }));
 
     // Batch作成
+    console.log(`[Claude] Batch作成リクエスト送信中...`);
+    const batchCreateStartTime = Date.now();
+
     const batch = await this.client.beta.messages.batches.create({
       requests
     });
 
-    console.log(`[Claude] Batch作成完了: ${batch.id}`);
+    const batchCreateElapsed = Date.now() - batchCreateStartTime;
+    console.log(`[Claude] Batch作成完了: ${batch.id} (作成時間: ${batchCreateElapsed}ms)`);
     console.log(`[Claude] ステータス: ${batch.processing_status}`);
+    console.log(`[Claude] リクエスト数: ${requests.length}件`);
+
+    // created_atとexpires_atを表示
+    if (batch.created_at) {
+      const createdAt = new Date(batch.created_at);
+      console.log(`[Claude] 作成日時: ${createdAt.toLocaleString('ja-JP')}`);
+    }
+    if (batch.expires_at) {
+      const expiresAt = new Date(batch.expires_at);
+      console.log(`[Claude] 有効期限: ${expiresAt.toLocaleString('ja-JP')}`);
+    }
 
     // Batch完了を待機
     const completedBatch = await this.waitForBatchCompletion(batch.id);
@@ -146,8 +164,13 @@ export class ClaudeAnalyzer {
     const results = await this.client.beta.messages.batches.results(completedBatch.id);
     
     // 結果をパース
+    console.log(`[Claude] 結果を取得中...`);
     const analyzed: AnalyzedMessage[] = [];
+    let parseErrorCount = 0;
+    let processedCount = 0;
+
     for await (const result of results) {
+      processedCount++;
       if (result.result.type === 'succeeded') {
         const content = result.result.message.content[0];
         if (content.type === 'text') {
@@ -162,13 +185,26 @@ export class ClaudeAnalyzer {
             const parsed = JSON.parse(jsonText);
             analyzed.push(parsed);
           } catch (e) {
+            parseErrorCount++;
             console.error(`[Claude] JSON parse error for ${result.custom_id}`);
-            console.error(`[Claude] Raw response: ${content.text.substring(0, 500)}`);
+            console.error(`[Claude] Error: ${e instanceof Error ? e.message : String(e)}`);
+            console.error(`[Claude] Raw response (first 500 chars): ${content.text.substring(0, 500)}`);
           }
         }
+      } else if (result.result.type === 'errored') {
+        parseErrorCount++;
+        console.error(`[Claude] API error for ${result.custom_id}: ${result.result.error.error.type}`);
+        if ('message' in result.result.error.error) {
+          console.error(`[Claude] Error message: ${result.result.error.error.message}`);
+        }
       } else {
-        console.error(`[Claude] Failed: ${result.custom_id}`);
+        parseErrorCount++;
+        console.error(`[Claude] Unexpected result type for ${result.custom_id}: ${result.result.type}`);
       }
+    }
+
+    if (parseErrorCount > 0) {
+      console.warn(`\n[警告] ${parseErrorCount}/${processedCount}件の処理に失敗しました`);
     }
 
     console.log(`[Claude] 分析完了: ${analyzed.length}件`);
@@ -176,21 +212,177 @@ export class ClaudeAnalyzer {
   }
 
   /**
+   * Realtime APIでメッセージを分析
+   * 通常価格だが、高速（数秒〜数分）
+   */
+  async analyzeRealtime(messages: ChatworkMessage[], roleResolver?: (accountId: number) => ResolvedRole): Promise<AnalyzedMessage[]> {
+    console.log(`[Claude] Realtime API処理開始: ${messages.length}件のメッセージ`);
+    console.log(`[Claude] 並列実行数: 5件ずつ`);
+
+    const analyzed: AnalyzedMessage[] = [];
+    let parseErrorCount = 0;
+    const CONCURRENCY = 5; // 並列実行数（API制限を考慮）
+
+    const startTime = Date.now();
+
+    // 5件ずつ並列処理
+    for (let i = 0; i < messages.length; i += CONCURRENCY) {
+      const batch = messages.slice(i, i + CONCURRENCY);
+      const batchNum = Math.floor(i / CONCURRENCY) + 1;
+      const totalBatches = Math.ceil(messages.length / CONCURRENCY);
+
+      console.log(`[Claude] バッチ ${batchNum}/${totalBatches} 処理中 (${batch.length}件)...`);
+
+      const promises = batch.map(async (msg) => {
+        try {
+          const response = await this.client.messages.create({
+            model: this.model,
+            max_tokens: 400,
+            messages: [{
+              role: 'user',
+              content: this.createAnalysisPrompt(msg, roleResolver)
+            }]
+          });
+
+          const content = response.content[0];
+          if (content.type === 'text') {
+            // JSONを抽出してパース（複数パターンに対応）
+            let jsonText = content.text.trim();
+
+            // パターン1: ```json ... ``` 形式
+            let jsonMatch = jsonText.match(/```json\s*([\s\S]*?)```/);
+            if (jsonMatch) {
+              jsonText = jsonMatch[1].trim();
+            } else {
+              // パターン2: ``` ... ``` 形式（json指定なし）
+              jsonMatch = jsonText.match(/```\s*([\s\S]*?)```/);
+              if (jsonMatch) {
+                jsonText = jsonMatch[1].trim();
+              }
+            }
+
+            // JSON文字列がまだ```で始まっている場合は除去（念のため）
+            jsonText = jsonText.replace(/^```(json)?/gm, '').replace(/```$/gm, '').trim();
+
+            try {
+              const parsed = JSON.parse(jsonText);
+              return { success: true, data: parsed, messageId: msg.message_id };
+            } catch (parseError) {
+              console.error(`[Claude] JSON parse error for message ${msg.message_id}`);
+              console.error(`[Claude] Parse error: ${parseError instanceof Error ? parseError.message : String(parseError)}`);
+              console.error(`[Claude] Raw response (first 500 chars): ${content.text.substring(0, 500)}`);
+              return { success: false, messageId: msg.message_id, error: parseError };
+            }
+          }
+        } catch (e) {
+          console.error(`[Claude] API error for message ${msg.message_id}: ${e instanceof Error ? e.message : String(e)}`);
+          return { success: false, messageId: msg.message_id, error: e };
+        }
+        return { success: false, messageId: msg.message_id };
+      });
+
+      const results = await Promise.all(promises);
+
+      for (const result of results) {
+        if (result.success && 'data' in result) {
+          analyzed.push(result.data);
+        } else {
+          parseErrorCount++;
+        }
+      }
+
+      // 進捗表示
+      const progress = Math.min(i + CONCURRENCY, messages.length);
+      const elapsedSec = Math.floor((Date.now() - startTime) / 1000);
+      console.log(`[Claude] 進捗: ${progress}/${messages.length}件 (経過: ${elapsedSec}秒)`);
+    }
+
+    const totalElapsedSec = Math.floor((Date.now() - startTime) / 1000);
+    console.log(`[Claude] 処理完了: ${analyzed.length}件 (総時間: ${totalElapsedSec}秒)`);
+
+    if (parseErrorCount > 0) {
+      console.warn(`\n[警告] ${parseErrorCount}/${messages.length}件の処理に失敗しました`);
+    }
+
+    return analyzed;
+  }
+
+  /**
+   * メッセージを分析（API種別に応じて自動振り分け）
+   */
+  async analyze(messages: ChatworkMessage[], roleResolver?: (accountId: number) => ResolvedRole): Promise<AnalyzedMessage[]> {
+    if (this.apiMode === 'realtime') {
+      console.log('[Claude] API種別: Realtime API (高速、通常価格)');
+      return this.analyzeRealtime(messages, roleResolver);
+    } else {
+      console.log('[Claude] API種別: Batch API (50%割引、処理時間: 数分〜24時間)');
+      return this.analyzeBatch(messages, roleResolver);
+    }
+  }
+
+  /**
    * Batch完了を待機
    */
   private async waitForBatchCompletion(batchId: string): Promise<Anthropic.Beta.Messages.BetaMessageBatch> {
-    let batch = await this.client.beta.messages.batches.retrieve(batchId);
-    const totalRequests = batch.request_counts.processing + batch.request_counts.succeeded + batch.request_counts.errored + batch.request_counts.canceled + batch.request_counts.expired;
+    const startTime = Date.now();
+    const TIMEOUT_MS = 30 * 60 * 1000; // 30分でタイムアウト警告
+    const POLLING_INTERVAL_MS = 10000; // 10秒ごとにチェック
 
+    let batch = await this.client.beta.messages.batches.retrieve(batchId);
+
+    // 送信したリクエストの総数を計算（request_countsの合計）
+    const totalRequests = batch.request_counts.processing +
+                         batch.request_counts.succeeded +
+                         batch.request_counts.errored +
+                         batch.request_counts.canceled +
+                         batch.request_counts.expired;
+
+    console.log(`[Claude] Batch処理待機開始 (合計: ${totalRequests}件)`);
+    console.log(`[Claude] 初期ステータス: ${batch.processing_status}`);
+    console.log(`[Claude] 詳細: processing=${batch.request_counts.processing}, succeeded=${batch.request_counts.succeeded}, errored=${batch.request_counts.errored}`);
+
+    // expires_atを表示（24時間後に期限切れ）
+    if (batch.expires_at) {
+      const expiresAt = new Date(batch.expires_at);
+      console.log(`[Claude] 有効期限: ${expiresAt.toLocaleString('ja-JP')}`);
+    }
+
+    let pollCount = 0;
+    let timeoutWarningShown = false; // 警告を一度だけ表示するフラグ
     while (batch.processing_status === 'in_progress') {
-      console.log(`[Claude] 処理中... (${batch.request_counts.processing}/${totalRequests})`);
-      await this.sleep(10000); // 10秒ごとにチェック
+      pollCount++;
+      const elapsedMinutes = Math.floor((Date.now() - startTime) / 60000);
+
+      // 完了済みリクエスト数（succeeded, errored, canceled, expired を含む）
+      const completedRequests = batch.request_counts.succeeded +
+                               batch.request_counts.errored +
+                               batch.request_counts.canceled +
+                               batch.request_counts.expired;
+
+      console.log(`[Claude] 処理中... (完了: ${completedRequests}/${totalRequests}, 経過: ${elapsedMinutes}分)`);
+
+      // タイムアウト警告（一度だけ表示）
+      if (!timeoutWarningShown && Date.now() - startTime > TIMEOUT_MS) {
+        console.warn(`\n[警告] Batch処理が30分以上経過しています`);
+        console.warn(`[警告] Batch ID: ${batchId}`);
+        console.warn(`[警告] 現在のステータス: processing=${batch.request_counts.processing}, succeeded=${batch.request_counts.succeeded}, errored=${batch.request_counts.errored}`);
+        console.warn(`[警告] Anthropic Batch APIは通常24時間以内に完了しますが、異常に遅い場合はAPI制限やシステム障害の可能性があります`);
+        console.warn(`[警告] https://status.anthropic.com/ でAPIステータスを確認してください\n`);
+        timeoutWarningShown = true;
+      }
+
+      await this.sleep(POLLING_INTERVAL_MS);
       batch = await this.client.beta.messages.batches.retrieve(batchId);
     }
 
-    console.log(`[Claude] Batch完了: ${batch.processing_status}`);
+    const totalElapsedMinutes = Math.floor((Date.now() - startTime) / 60000);
+    console.log(`\n[Claude] Batch完了: ${batch.processing_status} (処理時間: ${totalElapsedMinutes}分)`);
     console.log(`[Claude] 成功: ${batch.request_counts.succeeded}, 失敗: ${batch.request_counts.errored}`);
-    
+
+    if (batch.request_counts.errored > 0) {
+      console.warn(`[警告] ${batch.request_counts.errored}件のリクエストが失敗しました`);
+    }
+
     return batch;
   }
 
