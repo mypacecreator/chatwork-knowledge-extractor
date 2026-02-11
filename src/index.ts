@@ -45,6 +45,9 @@ async function main() {
     maxLength: parseInt(process.env.FILTER_MAX_LENGTH || '500'),
   };
 
+  // Claude API種別の選択
+  const claudeApiMode = (process.env.CLAUDE_API_MODE || 'batch') as 'batch' | 'realtime';
+
   // reanalyzeモードではClaude APIキーは不要
   if (!chatworkToken || !roomId) {
     console.error('エラー: CHATWORK_API_TOKEN, CHATWORK_ROOM_ID が設定されていません');
@@ -165,22 +168,28 @@ async function main() {
         return;
       }
 
-      // Step 2: Claude Batch APIで分析（フィルタリング済みメッセージのみ）
-      console.log('[2/5] Claude Batch APIで分析中...\n');
+      // Step 2: Claude APIで分析（フィルタリング済みメッセージのみ）
+      console.log('[2/5] Claude APIで分析中...\n');
 
       const analyzer = new ClaudeAnalyzer(claudeApiKey!, {
         promptTemplatePath,
         feedbackPath,
-        model: claudeModel
+        model: claudeModel,
+        apiMode: claudeApiMode
       });
       usedModel = analyzer.getModel();
       console.log(`使用モデル: ${usedModel}`);
-      console.log('※ バッチ処理のため、完了まで数分〜数十分かかります\n');
+
+      if (claudeApiMode === 'batch') {
+        console.log('※ Batch API: 50%割引、処理時間は数分〜24時間\n');
+      } else {
+        console.log('※ Realtime API: 通常価格、処理時間は数秒〜数分\n');
+      }
 
       const roleResolver = teamProfileManager!.hasProfiles()
         ? (accountId: number) => teamProfileManager!.resolveRole(accountId)
         : undefined;
-      const analyzed = await analyzer.analyzeBatch(filteredMessages, roleResolver);
+      const analyzed = await analyzer.analyze(filteredMessages, roleResolver);
 
       // 分析したメッセージIDを記録（フィルタリング済みメッセージのみ）
       const newlyAnalyzedIds = filteredMessages.map(m => m.message_id);

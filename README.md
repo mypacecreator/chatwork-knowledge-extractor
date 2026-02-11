@@ -48,6 +48,7 @@ OUTPUT_DIR=./output
 | `CHATWORK_ROOM_ID` | ✅ | 対象ルームID |
 | `CLAUDE_API_KEY` | ✅ | Claude APIキー |
 | `CLAUDE_MODEL` | - | 使用するClaudeモデル。デフォルト`claude-sonnet-4-5-20250929` |
+| `CLAUDE_API_MODE` | - | API種別。`batch`（50%割引、遅い）or `realtime`（通常価格、速い）。デフォルト`batch` |
 | `EXTRACT_FROM` | - | 分析対象期間。数字なら過去N日、日付（2025-01-01）ならその日以降 |
 | `MAX_MESSAGES` | - | 分析対象の最大件数。デフォルト500 |
 | `OUTPUT_DIR` | - | 出力先ディレクトリ。デフォルト`./output` |
@@ -137,6 +138,53 @@ npm run dev:reanalyze
   - ./output/external/knowledge_123456_ルーム名_2025-02-09_15-30-00.md
   - ./output/external/knowledge_123456_ルーム名_2025-02-09_15-30-00.json
 ```
+
+---
+
+## API種別の選択（Batch vs Realtime）
+
+用途に応じて、Batch API と Realtime API を選択できます。
+
+### Batch API（デフォルト）
+
+```env
+CLAUDE_API_MODE=batch
+```
+
+**特徴:**
+- **コスト**: 50%割引
+- **処理時間**: 数分〜24時間（負荷状況による）
+- **用途**: コスト重視、急ぎでない場合
+
+**向いているケース:**
+- 定期実行（cron等）で自動化
+- 大量のメッセージを一括処理
+- 処理完了を待てる場合
+
+### Realtime API
+
+```env
+CLAUDE_API_MODE=realtime
+```
+
+**特徴:**
+- **コスト**: 通常価格（Batch APIの2倍）
+- **処理時間**: 数秒〜数分（即座に完了）
+- **並列処理**: 5件ずつ同時実行で高速化
+
+**向いているケース:**
+- **すぐに結果が欲しい**（推奨）
+- 少量のメッセージ（〜100件程度）
+- インタラクティブな利用
+
+### コスト比較例（26件のメッセージ）
+
+| API種別 | 処理時間 | コスト（概算） |
+|---------|---------|--------------|
+| **Batch API** | 5〜20分 | 約10円 |
+| **Realtime API** | 30秒〜2分 | 約20円 |
+
+**推奨**: 少量のメッセージなら **Realtime API** がおすすめです。コスト差は微々たるもので、体感速度が劇的に改善します。
 
 ---
 

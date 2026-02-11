@@ -24,6 +24,7 @@ export interface AnalyzerOptions {
   promptTemplatePath?: string;
   feedbackPath?: string;
   model?: string;
+  apiMode?: 'batch' | 'realtime'; // API種別の選択
 }
 
 export interface FeedbackCorrection {
@@ -39,11 +40,13 @@ export class ClaudeAnalyzer {
   private client: Anthropic;
   private promptTemplate: string | null = null;
   private model: string;
+  private apiMode: 'batch' | 'realtime';
   private feedbackExamples: FeedbackCorrection[] = [];
 
   constructor(apiKey: string, options: AnalyzerOptions = {}) {
     this.client = new Anthropic({ apiKey });
     this.model = options.model || DEFAULT_MODEL;
+    this.apiMode = options.apiMode || 'batch'; // デフォルトはbatch（後方互換性）
     this.loadPromptTemplate(options.promptTemplatePath);
     this.loadFeedback(options.feedbackPath);
   }
@@ -206,6 +209,97 @@ export class ClaudeAnalyzer {
 
     console.log(`[Claude] 分析完了: ${analyzed.length}件`);
     return analyzed;
+  }
+
+  /**
+   * Realtime APIでメッセージを分析
+   * 通常価格だが、高速（数秒〜数分）
+   */
+  async analyzeRealtime(messages: ChatworkMessage[], roleResolver?: (accountId: number) => ResolvedRole): Promise<AnalyzedMessage[]> {
+    console.log(`[Claude] Realtime API処理開始: ${messages.length}件のメッセージ`);
+    console.log(`[Claude] 並列実行数: 5件ずつ`);
+
+    const analyzed: AnalyzedMessage[] = [];
+    let parseErrorCount = 0;
+    const CONCURRENCY = 5; // 並列実行数（API制限を考慮）
+
+    const startTime = Date.now();
+
+    // 5件ずつ並列処理
+    for (let i = 0; i < messages.length; i += CONCURRENCY) {
+      const batch = messages.slice(i, i + CONCURRENCY);
+      const batchNum = Math.floor(i / CONCURRENCY) + 1;
+      const totalBatches = Math.ceil(messages.length / CONCURRENCY);
+
+      console.log(`[Claude] バッチ ${batchNum}/${totalBatches} 処理中 (${batch.length}件)...`);
+
+      const promises = batch.map(async (msg) => {
+        try {
+          const response = await this.client.messages.create({
+            model: this.model,
+            max_tokens: 400,
+            messages: [{
+              role: 'user',
+              content: this.createAnalysisPrompt(msg, roleResolver)
+            }]
+          });
+
+          const content = response.content[0];
+          if (content.type === 'text') {
+            // JSONを抽出してパース
+            let jsonText = content.text.trim();
+            const jsonMatch = jsonText.match(/```(?:json)?\s*([\s\S]*?)```/);
+            if (jsonMatch) {
+              jsonText = jsonMatch[1].trim();
+            }
+
+            const parsed = JSON.parse(jsonText);
+            return { success: true, data: parsed, messageId: msg.message_id };
+          }
+        } catch (e) {
+          console.error(`[Claude] Error for message ${msg.message_id}: ${e instanceof Error ? e.message : String(e)}`);
+          return { success: false, messageId: msg.message_id, error: e };
+        }
+        return { success: false, messageId: msg.message_id };
+      });
+
+      const results = await Promise.all(promises);
+
+      for (const result of results) {
+        if (result.success && 'data' in result) {
+          analyzed.push(result.data);
+        } else {
+          parseErrorCount++;
+        }
+      }
+
+      // 進捗表示
+      const progress = Math.min(i + CONCURRENCY, messages.length);
+      const elapsedSec = Math.floor((Date.now() - startTime) / 1000);
+      console.log(`[Claude] 進捗: ${progress}/${messages.length}件 (経過: ${elapsedSec}秒)`);
+    }
+
+    const totalElapsedSec = Math.floor((Date.now() - startTime) / 1000);
+    console.log(`[Claude] 処理完了: ${analyzed.length}件 (総時間: ${totalElapsedSec}秒)`);
+
+    if (parseErrorCount > 0) {
+      console.warn(`\n[警告] ${parseErrorCount}/${messages.length}件の処理に失敗しました`);
+    }
+
+    return analyzed;
+  }
+
+  /**
+   * メッセージを分析（API種別に応じて自動振り分け）
+   */
+  async analyze(messages: ChatworkMessage[], roleResolver?: (accountId: number) => ResolvedRole): Promise<AnalyzedMessage[]> {
+    if (this.apiMode === 'realtime') {
+      console.log('[Claude] API種別: Realtime API (高速、通常価格)');
+      return this.analyzeRealtime(messages, roleResolver);
+    } else {
+      console.log('[Claude] API種別: Batch API (50%割引、処理時間: 数分〜24時間)');
+      return this.analyzeBatch(messages, roleResolver);
+    }
   }
 
   /**
