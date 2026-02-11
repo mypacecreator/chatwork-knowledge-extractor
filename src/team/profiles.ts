@@ -36,7 +36,10 @@ export class TeamProfileManager {
 
   private load(customPath?: string): void {
     // カスタムパスが指定されている場合
-    if (customPath && existsSync(customPath)) {
+    if (customPath) {
+      if (!existsSync(customPath)) {
+        throw new Error(`[TeamProfile] 指定されたファイルが見つかりません: ${customPath}`);
+      }
       this.parseFile(customPath);
       return;
     }
@@ -53,22 +56,42 @@ export class TeamProfileManager {
   }
 
   private parseFile(filePath: string): void {
+    let content: string;
     try {
-      const content = readFileSync(filePath, 'utf-8');
-      const config: TeamProfilesConfig = JSON.parse(content);
-
-      for (const [accountId, profile] of Object.entries(config.profiles)) {
-        if (!this.isValidRole(profile.role)) {
-          console.warn(`[TeamProfile] 不正なロール "${profile.role}" (account_id: ${accountId})、memberとして扱います`);
-          profile.role = 'member';
-        }
-        this.profiles.set(accountId, profile);
-      }
-
-      console.log(`[TeamProfile] ${this.profiles.size}名のプロファイル読み込み完了`);
+      content = readFileSync(filePath, 'utf-8');
     } catch (e) {
-      console.error(`[TeamProfile] 読み込みエラー: ${filePath}`);
+      throw new Error(`[TeamProfile] ファイル読み込みエラー: ${filePath} - ${e instanceof Error ? e.message : e}`);
     }
+
+    let config: unknown;
+    try {
+      config = JSON.parse(content);
+    } catch (e) {
+      throw new Error(`[TeamProfile] JSONパースエラー: ${filePath} - ${e instanceof Error ? e.message : e}`);
+    }
+
+    // profiles フィールドの存在・型チェック
+    if (
+      typeof config !== 'object' || config === null ||
+      !('profiles' in config) ||
+      typeof (config as Record<string, unknown>).profiles !== 'object' ||
+      (config as Record<string, unknown>).profiles === null ||
+      Array.isArray((config as Record<string, unknown>).profiles)
+    ) {
+      throw new Error(`[TeamProfile] 不正なJSON構造: "profiles" オブジェクトが必要です (${filePath})`);
+    }
+
+    const profiles = (config as TeamProfilesConfig).profiles;
+
+    for (const [accountId, profile] of Object.entries(profiles)) {
+      if (!this.isValidRole(profile.role)) {
+        console.warn(`[TeamProfile] 不正なロール "${profile.role}" (account_id: ${accountId})、memberとして扱います`);
+        profile.role = 'member';
+      }
+      this.profiles.set(accountId, profile);
+    }
+
+    console.log(`[TeamProfile] ${this.profiles.size}名のプロファイル読み込み完了`);
   }
 
   private isValidRole(role: string): role is TeamRole {

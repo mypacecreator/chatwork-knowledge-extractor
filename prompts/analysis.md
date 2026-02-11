@@ -7,7 +7,7 @@
 {{role_instruction}}
 
 【メッセージ】
-発言者: {{speaker}} (Role: {{speaker_role}})
+発言者: {{speaker}} (Role: {{speaker_role_label}})
 日時: {{date}}
 内容: {{body}}
 

@@ -213,7 +213,8 @@ export class ClaudeAnalyzer {
       return this.promptTemplate
         .replace(/\{\{message_id\}\}/g, message.message_id)
         .replace(/\{\{speaker\}\}/g, message.account.name)
-        .replace(/\{\{speaker_role\}\}/g, roleLabel)
+        .replace(/\{\{speaker_role\}\}/g, role)
+        .replace(/\{\{speaker_role_label\}\}/g, roleLabel)
         .replace(/\{\{role_instruction\}\}/g, roleInstruction)
         .replace(/\{\{date\}\}/g, date)
         .replace(/\{\{body\}\}/g, message.body)
@@ -304,7 +305,7 @@ ${feedbackText}
   "title": "タイトル",
   "tags": ["タグ1", "タグ2", "タグ3"],
   "speaker": "${message.account.name}",
-  "speaker_role": "${roleLabel}",
+  "speaker_role": "${role}",
   "date": "${date}",
   "formatted_content": "整形後の内容"
 }`;
