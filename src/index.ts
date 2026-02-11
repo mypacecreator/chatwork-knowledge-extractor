@@ -4,6 +4,7 @@ import { ClaudeAnalyzer, type AnalyzedMessage } from './claude/analyzer.js';
 import { MarkdownFormatter } from './formatter/markdown.js';
 import { JSONFormatter } from './formatter/json.js';
 import { MessageCacheManager } from './cache/messages.js';
+import { TeamProfileManager } from './team/profiles.js';
 import { join } from 'path';
 
 // 環境変数読み込み
@@ -27,6 +28,7 @@ async function main() {
   const maxMessages = parseInt(process.env.MAX_MESSAGES || '500');
   const promptTemplatePath = process.env.PROMPT_TEMPLATE_PATH;
   const feedbackPath = process.env.FEEDBACK_PATH;
+  const teamProfilesPath = process.env.TEAM_PROFILES_PATH;
   const claudeModel = process.env.CLAUDE_MODEL;
   const outputVersatility = (process.env.OUTPUT_VERSATILITY || 'high,medium')
     .split(',')
@@ -52,6 +54,7 @@ async function main() {
   // 警告を収集
   const allWarnings: string[] = [];
   const cacheManager = new MessageCacheManager();
+  const teamProfileManager = new TeamProfileManager(teamProfilesPath);
 
   try {
     let knowledgeItems: AnalyzedMessage[];
@@ -146,7 +149,10 @@ async function main() {
       console.log(`使用モデル: ${usedModel}`);
       console.log('※ バッチ処理のため、完了まで数分〜数十分かかります\n');
 
-      const analyzed = await analyzer.analyzeBatch(unanalyzedMessages);
+      const roleResolver = teamProfileManager.hasProfiles()
+        ? (accountId: number) => teamProfileManager.resolveRole(accountId)
+        : undefined;
+      const analyzed = await analyzer.analyzeBatch(unanalyzedMessages, roleResolver);
 
       // 分析したメッセージIDを記録
       const newlyAnalyzedIds = unanalyzedMessages.map(m => m.message_id);

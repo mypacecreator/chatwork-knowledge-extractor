@@ -3,9 +3,9 @@
 【重要】案件固有の内容は除外し、他の案件でも活用できる知見のみを抽出してください。
 
 以下のメッセージを分析し、JSON形式で結果を返してください。
-
+{{role_instruction}}
 【メッセージ】
-発言者: {{speaker}}
+発言者: {{speaker}} (Role: {{speaker_role}})
 日時: {{date}}
 内容: {{body}}
 
@@ -90,6 +90,7 @@
   "title": "タイトル",
   "tags": ["タグ1", "タグ2", "タグ3"],
   "speaker": "{{speaker}}",
+  "speaker_role": "{{speaker_role}}",
   "date": "{{date}}",
   "formatted_content": "整形後の内容"
 }
