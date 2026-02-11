@@ -3,7 +3,7 @@ import { readFileSync, existsSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import type { ChatworkMessage } from '../chatwork/client.js';
-import type { ResolvedRole } from '../team/profiles.js';
+import type { ResolvedRole, TeamRole } from '../team/profiles.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -314,7 +314,7 @@ ${feedbackText}
   /**
    * ロールに応じた分析指示を生成
    */
-  private buildRoleInstruction(role: string): string {
+  private buildRoleInstruction(role: TeamRole): string {
     switch (role) {
       case 'senior':
         return `
