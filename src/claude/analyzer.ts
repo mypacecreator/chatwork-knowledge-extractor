@@ -132,7 +132,7 @@ export class ClaudeAnalyzer {
       custom_id: `msg_${msg.message_id}`,
       params: {
         model: this.model,
-        max_tokens: 400, // 1000→400に削減（JSON出力は通常200-300トークン）
+        max_tokens: 1500, // JSON出力には十分な容量を確保（formatted_contentが長い場合に対応）
         messages: [{
           role: 'user' as const,
           content: this.createAnalysisPrompt(msg, roleResolver)
@@ -270,7 +270,7 @@ export class ClaudeAnalyzer {
         try {
           const response = await this.client.messages.create({
             model: this.model,
-            max_tokens: 400,
+            max_tokens: 1500, // JSON出力には十分な容量を確保
             messages: [{
               role: 'user',
               content: this.createAnalysisPrompt(msg, roleResolver)
