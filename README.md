@@ -58,6 +58,7 @@ OUTPUT_DIR=./output
 | `TEAM_PROFILES_PATH` | - | チームプロファイルのパス。デフォルト`config/team-profiles.json` |
 | `FILTER_MIN_LENGTH` | - | メッセージ最小文字数（これ未満は除外）。デフォルト`10` |
 | `FILTER_MAX_LENGTH` | - | メッセージ最大文字数（超過分は切り詰め）。デフォルト`300` |
+| `FILTER_BOILERPLATE_THRESHOLD` | - | 定型文除外の閾値（この文字数以上なら定型文で始まっても通す）。デフォルト`50` |
 
 **利用可能なモデル一覧:** https://platform.claude.com/docs/ja/about-claude/models/overview
 
@@ -220,6 +221,10 @@ FILTER_MIN_LENGTH=10
 
 # 300文字超は切り詰め（デフォルト: 300）
 FILTER_MAX_LENGTH=300
+
+# 50文字以上なら定型文で始まっても通す（デフォルト: 50）
+# 例: 「了解です。次回からは〇〇します」のようなケースを救済
+FILTER_BOILERPLATE_THRESHOLD=50
 ```
 
 ### 実行時の出力例

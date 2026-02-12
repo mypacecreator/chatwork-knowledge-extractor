@@ -43,6 +43,7 @@ async function main() {
   const filterConfig = {
     minLength: parseInt(process.env.FILTER_MIN_LENGTH || '10'),
     maxLength: parseInt(process.env.FILTER_MAX_LENGTH || '300'),
+    boilerplateThreshold: parseInt(process.env.FILTER_BOILERPLATE_THRESHOLD || '50'),
   };
 
   // Claude API種別の選択

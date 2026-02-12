@@ -6,12 +6,14 @@
 export interface FilterConfig {
   minLength: number;        // 最小文字数（デフォルト: 10）
   maxLength: number;        // 最大文字数（デフォルト: 300、超過分は切り詰め）
+  boilerplateThreshold: number; // 定型文除外の閾値（この文字数以上なら定型文パターンを無視）
   excludePatterns: string[]; // 除外パターン（正規表現文字列）
 }
 
 export const DEFAULT_FILTER_CONFIG: FilterConfig = {
   minLength: 10,  // 5→10に引き上げ（10文字未満は除外）
   maxLength: 300, // 500→300に削減（長文を積極的に切り詰め）
+  boilerplateThreshold: 50, // 50文字以上なら定型文で始まっていても通す
   excludePatterns: [
     // 記号・絵文字のみ
     '^[!！?？。、,，.・]+$',
@@ -90,9 +92,9 @@ export function shouldSkipMessage(
   }
 
   // 2. 除外パターンチェック
-  // ただし、50文字以上のメッセージは定型文で始まっていても通す
+  // ただし、boilerplateThreshold文字以上のメッセージは定型文で始まっていても通す
   // （「了解です。その後に重要な知見」のようなケースを救済）
-  if (trimmed.length < 50) {
+  if (trimmed.length < cfg.boilerplateThreshold) {
     for (const pattern of cfg.excludePatterns) {
       try {
         if (new RegExp(pattern, 'i').test(trimmed)) {
