@@ -181,12 +181,23 @@ export class ClaudeAnalyzer {
         const content = result.result.message.content[0];
         if (content.type === 'text') {
           try {
-            // マークダウンのコードブロックからJSONを抽出
+            // JSONを抽出してパース（複数パターンに対応）
             let jsonText = content.text.trim();
-            const jsonMatch = jsonText.match(/```(?:json)?\s*([\s\S]*?)```/);
+
+            // パターン1: ```json ... ``` 形式
+            let jsonMatch = jsonText.match(/```json\s*([\s\S]*?)```/);
             if (jsonMatch) {
               jsonText = jsonMatch[1].trim();
+            } else {
+              // パターン2: ``` ... ``` 形式（json指定なし）
+              jsonMatch = jsonText.match(/```\s*([\s\S]*?)```/);
+              if (jsonMatch) {
+                jsonText = jsonMatch[1].trim();
+              }
             }
+
+            // JSON文字列がまだ```で始まっている場合は除去（念のため）
+            jsonText = jsonText.replace(/^```(json)?/gm, '').replace(/```$/gm, '').trim();
 
             const parsed = JSON.parse(jsonText) as AnalyzedMessage;
 
