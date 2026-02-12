@@ -11,6 +11,18 @@ import { join } from 'path';
 // 環境変数読み込み
 dotenv.config();
 
+/**
+ * 環境変数から正の整数をパース（基数10、NaN対策）
+ * @param value 環境変数の値
+ * @param defaultValue パース失敗時のデフォルト値
+ * @returns パース結果（無効な値の場合はdefaultValue）
+ */
+function parsePositiveInt(value: string | undefined, defaultValue: number): number {
+  if (!value) return defaultValue;
+  const parsed = Number.parseInt(value, 10);
+  return Number.isNaN(parsed) || parsed < 0 ? defaultValue : parsed;
+}
+
 async function main() {
   // コマンドライン引数チェック
   const args = process.argv.slice(2);
@@ -41,10 +53,16 @@ async function main() {
 
   // メッセージフィルタ設定（環境変数で上書き可能）
   const filterConfig = {
-    minLength: parseInt(process.env.FILTER_MIN_LENGTH || '10'),
-    maxLength: parseInt(process.env.FILTER_MAX_LENGTH || '300'),
-    boilerplateThreshold: parseInt(process.env.FILTER_BOILERPLATE_THRESHOLD || '50'),
+    minLength: parsePositiveInt(process.env.FILTER_MIN_LENGTH, 10),
+    maxLength: parsePositiveInt(process.env.FILTER_MAX_LENGTH, 300),
+    boilerplateThreshold: parsePositiveInt(process.env.FILTER_BOILERPLATE_THRESHOLD, 50),
   };
+
+  // フィルタ設定のバリデーション
+  if (filterConfig.minLength > filterConfig.maxLength) {
+    console.warn(`警告: FILTER_MIN_LENGTH(${filterConfig.minLength}) > FILTER_MAX_LENGTH(${filterConfig.maxLength}). maxLengthをminLengthに合わせます`);
+    filterConfig.maxLength = Math.max(filterConfig.minLength, filterConfig.maxLength);
+  }
 
   // Claude API種別の選択
   const claudeApiMode = (process.env.CLAUDE_API_MODE || 'batch') as 'batch' | 'realtime';
