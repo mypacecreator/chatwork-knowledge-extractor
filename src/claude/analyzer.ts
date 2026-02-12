@@ -545,7 +545,7 @@ export class ClaudeAnalyzer {
     if (this.promptTemplate) {
       return this.promptTemplate
         .replace(/\{\{message_id\}\}/g, message.message_id)
-        .replace(/\{\{speaker\}\}/g, message.account.name)
+        .replace(/\{\{speaker\}\}/g, roleLabel)  // 実名ではなくロールラベルのみ
         .replace(/\{\{speaker_role\}\}/g, role)
         .replace(/\{\{speaker_role_label\}\}/g, roleLabel)
         .replace(/\{\{role_instruction\}\}/g, roleInstruction)
@@ -562,7 +562,7 @@ ${roleInstruction}
 以下のメッセージを分析し、JSON形式で結果を返してください。
 
 【メッセージ】
-発言者: ${message.account.name} (Role: ${roleLabel})
+発言者ロール: ${roleLabel}
 日時: ${date}
 内容: ${message.body}
 
@@ -637,8 +637,6 @@ ${feedbackText}
   "versatility": "high/medium/low/exclude",
   "title": "タイトル",
   "tags": ["タグ1", "タグ2", "タグ3"],
-  "speaker": "${message.account.name}",
-  "speaker_role": "${role}",
   "date": "${date}",
   "formatted_content": "整形後の内容"
 }`;

@@ -7,7 +7,7 @@
 {{role_instruction}}
 
 【メッセージ】
-発言者: {{speaker}} (Role: {{speaker_role_label}})
+発言者ロール: {{speaker_role_label}}
 日時: {{date}}
 内容: {{body}}
 
@@ -128,8 +128,6 @@
   "versatility": "high/medium/low/exclude",
   "title": "タイトル",
   "tags": ["タグ1", "タグ2", "タグ3"],
-  "speaker": "{{speaker}}",
-  "speaker_role": "{{speaker_role}}",
   "date": "{{date}}",
   "formatted_content": "整形後の内容"
 }

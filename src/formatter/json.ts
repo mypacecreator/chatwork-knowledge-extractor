@@ -2,6 +2,7 @@ import type { AnalyzedMessage } from '../claude/analyzer.js';
 import { writeFile, mkdir } from 'fs/promises';
 import { dirname } from 'path';
 import { anonymizeSpeakers } from './anonymize.js';
+import { SpeakerMapManager } from '../cache/speakerMap.js';
 
 export interface FormatOptions {
   roomName?: string;
@@ -25,10 +26,26 @@ export class JSONFormatter {
   /**
    * 分析結果をJSON形式で出力
    */
-  async format(messages: AnalyzedMessage[], outputPath: string, options: FormatOptions = {}): Promise<void> {
-    // 匿名化が必要な場合、コピーして発言者を置換
+  async format(
+    messages: AnalyzedMessage[],
+    outputPath: string,
+    options: FormatOptions = {},
+    speakerMapManager?: SpeakerMapManager,
+    roomId?: string
+  ): Promise<void> {
     let items = messages;
-    if (options.anonymize) {
+
+    // SpeakerMapが利用可能な場合、それを使用
+    if (speakerMapManager && roomId) {
+      if (options.anonymize) {
+        // External用: message_idベースで機械的に匿名化
+        items = await this.anonymizeWithMessageId(messages, speakerMapManager, roomId);
+      } else {
+        // Internal用: SpeakerMapから実名を取得
+        items = await this.applySpeakerNames(messages, speakerMapManager, roomId);
+      }
+    } else if (options.anonymize) {
+      // フォールバック: 従来の匿名化方式
       items = anonymizeSpeakers(messages);
     }
 
@@ -63,6 +80,78 @@ export class JSONFormatter {
     await mkdir(dirname(outputPath), { recursive: true });
     await writeFile(outputPath, JSON.stringify(exportData, null, 2), 'utf-8');
     console.log(`[JSON] 出力完了: ${outputPath}`);
+  }
+
+  /**
+   * message_idベースでSpeakerMapから実名を取得
+   */
+  private async applySpeakerNames(
+    messages: AnalyzedMessage[],
+    speakerMapManager: SpeakerMapManager,
+    roomId: string
+  ): Promise<AnalyzedMessage[]> {
+    const speakerMap = await speakerMapManager.load(roomId);
+    if (!speakerMap) {
+      console.warn('[Formatter] SpeakerMapが見つかりません。既存のspeakerフィールドを使用します。');
+      return messages;
+    }
+
+    return messages.map(item => {
+      const speakerInfo = speakerMap.speakers[item.message_id];
+      if (speakerInfo) {
+        return { ...item, speaker: speakerInfo.speaker_name };
+      }
+      // フォールバック: 既存のspeakerフィールドをそのまま使用
+      return item;
+    });
+  }
+
+  /**
+   * message_idベースで機械的に匿名化
+   * account_idごとに一意な匿名ID（発言者1, 発言者2...）を割り当て
+   */
+  private async anonymizeWithMessageId(
+    messages: AnalyzedMessage[],
+    speakerMapManager: SpeakerMapManager,
+    roomId: string
+  ): Promise<AnalyzedMessage[]> {
+    const speakerMap = await speakerMapManager.load(roomId);
+    if (!speakerMap) {
+      console.warn('[Formatter] SpeakerMapが見つかりません。従来の匿名化方式を使用します。');
+      return anonymizeSpeakers(messages);
+    }
+
+    // account_id → 匿名IDのマッピングを作成
+    const accountIdToAnonymousId = new Map<number, string>();
+    let counter = 1;
+
+    // 一貫性のため、account_idでソート
+    const allAccountIds = new Set<number>();
+    for (const msg of messages) {
+      const speakerInfo = speakerMap.speakers[msg.message_id];
+      if (speakerInfo) {
+        allAccountIds.add(speakerInfo.account_id);
+      }
+    }
+
+    const sortedAccountIds = Array.from(allAccountIds).sort((a, b) => a - b);
+    for (const accountId of sortedAccountIds) {
+      accountIdToAnonymousId.set(accountId, `発言者${counter}`);
+      counter++;
+    }
+
+    return messages.map(item => {
+      const speakerInfo = speakerMap.speakers[item.message_id];
+      if (!speakerInfo) {
+        // フォールバック
+        return item;
+      }
+
+      return {
+        ...item,
+        speaker: accountIdToAnonymousId.get(speakerInfo.account_id)!
+      };
+    });
   }
 
 }

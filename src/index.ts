@@ -4,6 +4,7 @@ import { ClaudeAnalyzer, type AnalyzedMessage } from './claude/analyzer.js';
 import { MarkdownFormatter } from './formatter/markdown.js';
 import { JSONFormatter } from './formatter/json.js';
 import { MessageCacheManager } from './cache/messages.js';
+import { SpeakerMapManager } from './cache/speakerMap.js';
 import { TeamProfileManager } from './team/profiles.js';
 import { filterMessages } from './utils/messageFilter.js';
 import { join } from 'path';
@@ -83,6 +84,7 @@ async function main() {
   // 警告を収集
   const allWarnings: string[] = [];
   const cacheManager = new MessageCacheManager();
+  const speakerMapManager = new SpeakerMapManager();
   const teamProfileManager = !isReanalyze ? new TeamProfileManager(teamProfilesPath) : null;
 
   try {
@@ -161,6 +163,12 @@ async function main() {
       console.log(`未分析メッセージ: ${unanalyzedMessages.length}件\n`);
 
       if (unanalyzedMessages.length > 0) {
+        // 発言者マッピングを保存（新規追加）
+        const roleResolver = teamProfileManager!.hasProfiles()
+          ? (accountId: number) => teamProfileManager!.resolveRole(accountId)
+          : undefined;
+        await speakerMapManager.save(roomId, unanalyzedMessages, roleResolver);
+
         // メッセージの事前フィルタリング（知見が含まれない可能性が高いものを除外）
         console.log('事前フィルタリング中...');
         const { filtered: filteredMessages, stats } = filterMessages(unanalyzedMessages, filterConfig);
@@ -290,7 +298,7 @@ async function main() {
     await markdownFormatter.format(knowledgeItems, internalMdPath, {
       ...formatOptions,
       anonymize: false
-    });
+    }, speakerMapManager, roomId);
 
     // === 外部用Markdown出力（匿名化） ===
     console.log(`\n${stepPrefix2} 外部用出力中（匿名化）...\n`);
@@ -299,7 +307,7 @@ async function main() {
     await markdownFormatter.format(knowledgeItems, externalMdPath, {
       ...formatOptions,
       anonymize: true
-    });
+    }, speakerMapManager, roomId);
 
     // === 外部用JSON出力（匿名化） ===
     const externalJsonPath = join(externalDir, `${baseFilename}.json`);
@@ -307,7 +315,7 @@ async function main() {
     await jsonFormatter.format(knowledgeItems, externalJsonPath, {
       ...formatOptions,
       anonymize: true
-    });
+    }, speakerMapManager, roomId);
 
     // 完了
     console.log('\n=== 完了 ===');
