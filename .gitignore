@@ -19,6 +19,10 @@ feedback/
 config/
 !config/*.example.json
 
+# prompts
+prompts/
+!prompts/analysis.md
+
 
 # Cache (runtime data)
 /cache/

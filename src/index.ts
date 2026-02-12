@@ -190,10 +190,10 @@ async function main() {
           console.log('\n[3/5] 分析結果をキャッシュに保存中...\n');
           await cacheManager.saveAnalysisResults(roomId, analyzed, usedModel);
         } else {
-          console.log('フィルタリング後、新規の分析対象メッセージはありません。キャッシュから出力します。\n');
+          console.log('フィルタリング後、新規の分析対象メッセージはありません。キャッシュがあれば出力します。\n');
         }
       } else {
-        console.log('新しく分析するメッセージはありません。キャッシュから出力します。\n');
+        console.log('新しく分析するメッセージはありません。キャッシュがあれば出力します。\n');
       }
 
       // 既存キャッシュから分析結果を読み込み
