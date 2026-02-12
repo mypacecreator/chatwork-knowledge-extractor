@@ -41,8 +41,8 @@ async function main() {
 
   // メッセージフィルタ設定（環境変数で上書き可能）
   const filterConfig = {
-    minLength: parseInt(process.env.FILTER_MIN_LENGTH || '5'),
-    maxLength: parseInt(process.env.FILTER_MAX_LENGTH || '500'),
+    minLength: parseInt(process.env.FILTER_MIN_LENGTH || '10'),
+    maxLength: parseInt(process.env.FILTER_MAX_LENGTH || '300'),
   };
 
   // Claude API種別の選択

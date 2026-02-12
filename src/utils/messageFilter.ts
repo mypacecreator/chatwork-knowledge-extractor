@@ -90,13 +90,17 @@ export function shouldSkipMessage(
   }
 
   // 2. 除外パターンチェック
-  for (const pattern of cfg.excludePatterns) {
-    try {
-      if (new RegExp(pattern, 'i').test(trimmed)) {
-        return { skip: true, reason: `matched_pattern: ${pattern}` };
+  // ただし、50文字以上のメッセージは定型文で始まっていても通す
+  // （「了解です。その後に重要な知見」のようなケースを救済）
+  if (trimmed.length < 50) {
+    for (const pattern of cfg.excludePatterns) {
+      try {
+        if (new RegExp(pattern, 'i').test(trimmed)) {
+          return { skip: true, reason: `matched_pattern: ${pattern}` };
+        }
+      } catch (e) {
+        console.warn(`Invalid regex pattern: ${pattern}`, e);
       }
-    } catch (e) {
-      console.warn(`Invalid regex pattern: ${pattern}`, e);
     }
   }
 
