@@ -216,7 +216,12 @@ export class ClaudeAnalyzer {
             parseErrorCount++;
             console.error(`[Claude] JSON parse error for ${result.custom_id}`);
             console.error(`[Claude] Error: ${e instanceof Error ? e.message : String(e)}`);
-            console.error(`[Claude] Raw response (first 500 chars): ${content.text.substring(0, 500)}`);
+            console.error(`[Claude] Raw response (first 1000 chars): ${content.text.substring(0, 1000)}`);
+            console.error(`[Claude] Response length: ${content.text.length} chars`);
+            // 最後の部分も表示
+            if (content.text.length > 1000) {
+              console.error(`[Claude] Raw response (last 500 chars): ${content.text.substring(content.text.length - 500)}`);
+            }
           }
         }
       } else if (result.result.type === 'errored') {
@@ -305,7 +310,12 @@ export class ClaudeAnalyzer {
             } catch (parseError) {
               console.error(`[Claude] JSON parse error for message ${msg.message_id}`);
               console.error(`[Claude] Parse error: ${parseError instanceof Error ? parseError.message : String(parseError)}`);
-              console.error(`[Claude] Raw response (first 500 chars): ${content.text.substring(0, 500)}`);
+              console.error(`[Claude] Raw response (first 1000 chars): ${content.text.substring(0, 1000)}`);
+              console.error(`[Claude] Response length: ${content.text.length} chars`);
+              // 最後の部分も表示
+              if (content.text.length > 1000) {
+                console.error(`[Claude] Raw response (last 500 chars): ${content.text.substring(content.text.length - 500)}`);
+              }
               return { success: false, messageId: msg.message_id, error: parseError };
             }
           }

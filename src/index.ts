@@ -226,12 +226,22 @@ async function main() {
       }
 
       console.log(`汎用性フィルタ: ${outputVersatility.join(', ')} のみ出力`);
+      console.log(`[Debug] フィルタリング前: ${allResults.length}件`);
+
+      // デバッグ: versatility分布を表示
+      const versatilityDist = allResults.reduce((acc, item) => {
+        acc[item.versatility] = (acc[item.versatility] || 0) + 1;
+        return acc;
+      }, {} as Record<string, number>);
+      console.log(`[Debug] versatility分布:`, versatilityDist);
 
       knowledgeItems = allResults.filter(
           item => item.versatility !== 'exclude'
               && item.category !== '除外対象'
               && outputVersatility.includes(item.versatility)
       );
+
+      console.log(`[Debug] フィルタリング後: ${knowledgeItems.length}件`);
 
       // usedModelがまだ設定されていない場合（新規分析なし）、キャッシュから取得
       if (!usedModel) {
