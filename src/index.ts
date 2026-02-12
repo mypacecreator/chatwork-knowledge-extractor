@@ -163,11 +163,9 @@ async function main() {
       console.log(`未分析メッセージ: ${unanalyzedMessages.length}件\n`);
 
       if (unanalyzedMessages.length > 0) {
-        // 発言者マッピングを保存（新規追加）
         const roleResolver = teamProfileManager!.hasProfiles()
           ? (accountId: number) => teamProfileManager!.resolveRole(accountId)
           : undefined;
-        await speakerMapManager.save(roomId, unanalyzedMessages, roleResolver);
 
         // メッセージの事前フィルタリング（知見が含まれない可能性が高いものを除外）
         console.log('事前フィルタリング中...');
@@ -184,6 +182,9 @@ async function main() {
           }
           console.log('');
         }
+
+        // 発言者マッピングを保存（フィルタリング後のメッセージで保存）
+        await speakerMapManager.save(roomId, filteredMessages, roleResolver);
 
         if (filteredMessages.length > 0) {
           // Step 2: Claude APIで分析（フィルタリング済みメッセージのみ）
