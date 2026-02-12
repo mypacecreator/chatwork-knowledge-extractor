@@ -32,8 +32,8 @@ async function main() {
   const teamProfilesPath = process.env.TEAM_PROFILES_PATH;
   const claudeModel = process.env.CLAUDE_MODEL;
   const outputVersatility = (process.env.OUTPUT_VERSATILITY || 'high,medium')
-    .split(',')
-    .map(v => v.trim());
+      .split(',')
+      .map(v => v.trim());
 
   // EXTRACT_FROM: 日付形式（YYYY-MM-DD）または日数
   // 後方互換のためDAYS_TO_EXTRACTもサポート
@@ -69,7 +69,7 @@ async function main() {
 
   try {
     let knowledgeItems: AnalyzedMessage[];
-    let usedModel: string;
+    let usedModel = '';
 
     if (isReanalyze) {
       // === 再出力モード: キャッシュから分析結果を読み込み ===
@@ -96,9 +96,9 @@ async function main() {
       // 汎用性フィルタ
       console.log(`汎用性フィルタ: ${outputVersatility.join(', ')} のみ出力`);
       knowledgeItems = filteredResults.filter(
-        item => item.versatility !== 'exclude'
-          && item.category !== '除外対象'
-          && outputVersatility.includes(item.versatility)
+          item => item.versatility !== 'exclude'
+              && item.category !== '除外対象'
+              && outputVersatility.includes(item.versatility)
       );
 
       // キャッシュからモデル情報を取得
@@ -142,65 +142,62 @@ async function main() {
 
       console.log(`未分析メッセージ: ${unanalyzedMessages.length}件\n`);
 
-      if (unanalyzedMessages.length === 0) {
-        console.log('新しく分析するメッセージがありません。');
-        console.log('キャッシュから再出力するには --reanalyze オプションを使ってください。');
-        return;
-      }
+      if (unanalyzedMessages.length > 0) {
+        // メッセージの事前フィルタリング（知見が含まれない可能性が高いものを除外）
+        console.log('事前フィルタリング中...');
+        const { filtered: filteredMessages, stats } = filterMessages(unanalyzedMessages, filterConfig);
+        console.log(`  - 対象: ${stats.total}件`);
+        console.log(`  - スキップ: ${stats.skipped}件 (短すぎる/定型文)`);
+        console.log(`  - 切り詰め: ${stats.truncated}件 (${filterConfig.maxLength}文字超)`);
+        console.log(`  - API送信: ${filteredMessages.length}件\n`);
 
-      // メッセージの事前フィルタリング（知見が含まれない可能性が高いものを除外）
-      console.log('事前フィルタリング中...');
-      const { filtered: filteredMessages, stats } = filterMessages(unanalyzedMessages, filterConfig);
-      console.log(`  - 対象: ${stats.total}件`);
-      console.log(`  - スキップ: ${stats.skipped}件 (短すぎる/定型文)`);
-      console.log(`  - 切り詰め: ${stats.truncated}件 (${filterConfig.maxLength}文字超)`);
-      console.log(`  - API送信: ${filteredMessages.length}件\n`);
-
-      if (stats.skipped > 0) {
-        console.log('スキップ理由の内訳:');
-        for (const [reason, count] of Object.entries(stats.reasons)) {
-          console.log(`  - ${reason}: ${count}件`);
+        if (stats.skipped > 0) {
+          console.log('スキップ理由の内訳:');
+          for (const [reason, count] of Object.entries(stats.reasons)) {
+            console.log(`  - ${reason}: ${count}件`);
+          }
+          console.log('');
         }
-        console.log('');
-      }
 
-      if (filteredMessages.length === 0) {
-        console.log('フィルタリング後、分析対象のメッセージがありません。');
-        return;
-      }
+        if (filteredMessages.length > 0) {
+          // Step 2: Claude APIで分析（フィルタリング済みメッセージのみ）
+          console.log('[2/5] Claude APIで分析中...\n');
 
-      // Step 2: Claude APIで分析（フィルタリング済みメッセージのみ）
-      console.log('[2/5] Claude APIで分析中...\n');
+          const analyzer = new ClaudeAnalyzer(claudeApiKey!, {
+            promptTemplatePath,
+            feedbackPath,
+            model: claudeModel,
+            apiMode: claudeApiMode
+          });
+          usedModel = analyzer.getModel();
+          console.log(`使用モデル: ${usedModel}`);
 
-      const analyzer = new ClaudeAnalyzer(claudeApiKey!, {
-        promptTemplatePath,
-        feedbackPath,
-        model: claudeModel,
-        apiMode: claudeApiMode
-      });
-      usedModel = analyzer.getModel();
-      console.log(`使用モデル: ${usedModel}`);
+          if (claudeApiMode === 'batch') {
+            console.log('※ Batch API: 50%割引、処理時間は数分〜24時間\n');
+          } else {
+            console.log('※ Realtime API: 通常価格、処理時間は数秒〜数分\n');
+          }
 
-      if (claudeApiMode === 'batch') {
-        console.log('※ Batch API: 50%割引、処理時間は数分〜24時間\n');
+          const roleResolver = teamProfileManager!.hasProfiles()
+              ? (accountId: number) => teamProfileManager!.resolveRole(accountId)
+              : undefined;
+          const analyzed = await analyzer.analyze(filteredMessages, roleResolver);
+
+          // 分析したメッセージIDを記録（フィルタリング済みメッセージのみ）
+          const newlyAnalyzedIds = filteredMessages.map(m => m.message_id);
+          await cacheManager.markAsAnalyzed(roomId, newlyAnalyzedIds);
+
+          // 分析結果をキャッシュに保存（モデル情報付き）
+          console.log('\n[3/5] 分析結果をキャッシュに保存中...\n');
+          await cacheManager.saveAnalysisResults(roomId, analyzed, usedModel);
+        } else {
+          console.log('フィルタリング後、新規の分析対象メッセージはありません。キャッシュがあれば出力します。\n');
+        }
       } else {
-        console.log('※ Realtime API: 通常価格、処理時間は数秒〜数分\n');
+        console.log('新しく分析するメッセージはありません。キャッシュがあれば出力します。\n');
       }
 
-      const roleResolver = teamProfileManager!.hasProfiles()
-        ? (accountId: number) => teamProfileManager!.resolveRole(accountId)
-        : undefined;
-      const analyzed = await analyzer.analyze(filteredMessages, roleResolver);
-
-      // 分析したメッセージIDを記録（フィルタリング済みメッセージのみ）
-      const newlyAnalyzedIds = filteredMessages.map(m => m.message_id);
-      await cacheManager.markAsAnalyzed(roomId, newlyAnalyzedIds);
-
-      // 分析結果をキャッシュに保存（モデル情報付き）
-      console.log('\n[3/5] 分析結果をキャッシュに保存中...\n');
-      await cacheManager.saveAnalysisResults(roomId, analyzed, usedModel);
-
-      // 既存キャッシュ + 新規分析結果をマージしてフィルタリング
+      // 既存キャッシュから分析結果を読み込み
       let allResults = await cacheManager.loadAnalysisResults(roomId);
 
       // 期間フィルタ（出力対象にも適用）
@@ -213,12 +210,18 @@ async function main() {
       console.log(`汎用性フィルタ: ${outputVersatility.join(', ')} のみ出力`);
 
       knowledgeItems = allResults.filter(
-        item => item.versatility !== 'exclude'
-          && item.category !== '除外対象'
-          && outputVersatility.includes(item.versatility)
+          item => item.versatility !== 'exclude'
+              && item.category !== '除外対象'
+              && outputVersatility.includes(item.versatility)
       );
 
-      console.log(`分析完了: ${analyzed.length}件中、全体で ${knowledgeItems.length}件が形式知化対象\n`);
+      // usedModelがまだ設定されていない場合（新規分析なし）、キャッシュから取得
+      if (!usedModel) {
+        const analysisCache = await cacheManager.loadAnalysisCache(roomId);
+        usedModel = analysisCache?.model || claudeModel || '(不明)';
+      }
+
+      console.log(`全体で ${knowledgeItems.length}件が形式知化対象\n`);
     }
 
     if (knowledgeItems.length === 0) {
@@ -232,13 +235,13 @@ async function main() {
 
     // 出力ファイル名生成
     const timestamp = new Date().toISOString()
-      .replace(/:/g, '-')
-      .replace(/\..+/, '')
-      .replace('T', '_');
+        .replace(/:/g, '-')
+        .replace(/\..+/, '')
+        .replace('T', '_');
     const safeRoomName = roomInfo.name
-      .replace(/[\/\\:*?"<>|]/g, '')
-      .replace(/\s+/g, '_')
-      .substring(0, 50);
+        .replace(/[\/\\:*?"<>|]/g, '')
+        .replace(/\s+/g, '_')
+        .substring(0, 50);
     const baseFilename = `knowledge_${roomId}_${safeRoomName}_${timestamp}`;
 
     // フォーマットオプション
