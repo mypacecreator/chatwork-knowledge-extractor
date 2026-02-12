@@ -17,8 +17,6 @@ export interface AnalyzedMessage {
   versatility: 'high' | 'medium' | 'low' | 'exclude';
   title: string;
   tags: string[];
-  speaker: string;
-  speaker_role?: string;
   date: string;
   formatted_content: string;
 }
@@ -124,12 +122,6 @@ export class ClaudeAnalyzer {
   async analyzeBatch(messages: ChatworkMessage[], roleResolver?: (accountId: number) => ResolvedRole): Promise<AnalyzedMessage[]> {
     console.log(`[Claude] Batch API処理開始: ${messages.length}件のメッセージ`);
 
-    // メッセージIDから元のメッセージを取得できるようにマップを作成
-    const messagesMap = new Map<string, ChatworkMessage>();
-    for (const msg of messages) {
-      messagesMap.set(msg.message_id, msg);
-    }
-
     // Batch API用のリクエストを作成
     const requests = messages.map((msg, index) => ({
       custom_id: `msg_${msg.message_id}`,
@@ -207,33 +199,12 @@ export class ClaudeAnalyzer {
             // 配列形式の応答に対応（1つのメッセージから複数の知見を抽出する場合）
             const items = Array.isArray(parsed) ? parsed : [parsed];
 
-            // speaker検証・復元（第二防衛線）
-            // custom_idは "msg_1234567890" 形式なので、プレフィックスを除去
-            const messageId = result.custom_id.replace(/^msg_/, '');
-            const originalMessage = messagesMap.get(messageId);
-
             for (const item of items) {
               // 必須フィールドのバリデーション
               if (!item.versatility || !item.category || !item.message_id) {
                 console.warn(`[Claude] 必須フィールド不足をスキップ: ${result.custom_id}`, item);
                 parseErrorCount++;
                 continue;
-              }
-
-              // speaker復元（複数パターンに対応）
-              if (originalMessage) {
-                const needsRestore =
-                  /^発言者\d+$/.test(item.speaker) ||  // 「発言者1」形式
-                  !item.speaker ||  // 空
-                  item.speaker === 'Member' ||  // ロール名
-                  item.speaker === 'Senior' ||
-                  item.speaker === 'Junior' ||
-                  item.speaker.toLowerCase() === item.speaker_role?.toLowerCase();  // speaker_roleと同じ
-
-                if (needsRestore) {
-                  console.warn(`[Claude] speaker フィールドを復元します: ${result.custom_id} (${item.speaker} → ${originalMessage.account.name})`);
-                  item.speaker = originalMessage.account.name;
-                }
               }
               analyzed.push(item as AnalyzedMessage);
             }
@@ -348,27 +319,13 @@ export class ClaudeAnalyzer {
               // 配列形式の応答に対応（1つのメッセージから複数の知見を抽出する場合）
               const items = Array.isArray(parsed) ? parsed : [parsed];
 
-              // 必須フィールドのバリデーション & speaker復元
+              // 必須フィールドのバリデーション
               const validItems: AnalyzedMessage[] = [];
               for (const item of items) {
                 // 必須フィールドチェック
                 if (!item.versatility || !item.category || !item.message_id) {
                   console.warn(`[Claude] 必須フィールド不足をスキップ: ${msg.message_id}`, item);
                   continue;
-                }
-
-                // speaker復元（複数パターンに対応）
-                const needsRestore =
-                  /^発言者\d+$/.test(item.speaker) ||  // 「発言者1」形式
-                  !item.speaker ||  // 空
-                  item.speaker === 'Member' ||  // ロール名
-                  item.speaker === 'Senior' ||
-                  item.speaker === 'Junior' ||
-                  item.speaker.toLowerCase() === item.speaker_role?.toLowerCase();  // speaker_roleと同じ
-
-                if (needsRestore) {
-                  console.warn(`[Claude] speaker フィールドを復元します: ${msg.message_id} (${item.speaker} → ${msg.account.name})`);
-                  item.speaker = msg.account.name;
                 }
                 validItems.push(item as AnalyzedMessage);
               }

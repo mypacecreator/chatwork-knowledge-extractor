@@ -20,23 +20,18 @@ export class MarkdownFormatter {
     messages: AnalyzedMessage[],
     outputPath: string,
     options: FormatOptions = {},
-    speakerMapManager?: SpeakerMapManager,
-    roomId?: string
+    speakerMapManager: SpeakerMapManager,
+    roomId: string
   ): Promise<void> {
-    let items = messages;
+    let items: (AnalyzedMessage & { speaker: string })[];
 
-    // SpeakerMapが利用可能な場合、それを使用
-    if (speakerMapManager && roomId) {
-      if (options.anonymize) {
-        // External用: message_idベースで機械的に匿名化
-        items = await this.anonymizeWithMessageId(messages, speakerMapManager, roomId);
-      } else {
-        // Internal用: SpeakerMapから実名を取得
-        items = await this.applySpeakerNames(messages, speakerMapManager, roomId);
-      }
-    } else if (options.anonymize) {
-      // フォールバック: 従来の匿名化方式
-      items = anonymizeSpeakers(messages);
+    // SpeakerMapから発言者情報を取得（必須）
+    if (options.anonymize) {
+      // External用: message_idベースで機械的に匿名化
+      items = await this.anonymizeWithMessageId(messages, speakerMapManager, roomId);
+    } else {
+      // Internal用: SpeakerMapから実名を取得
+      items = await this.applySpeakerNames(messages, speakerMapManager, roomId);
     }
 
     // カテゴリ別にグループ化
@@ -62,20 +57,19 @@ export class MarkdownFormatter {
     messages: AnalyzedMessage[],
     speakerMapManager: SpeakerMapManager,
     roomId: string
-  ): Promise<AnalyzedMessage[]> {
+  ): Promise<(AnalyzedMessage & { speaker: string })[]> {
     const speakerMap = await speakerMapManager.load(roomId);
     if (!speakerMap) {
-      console.warn('[Formatter] SpeakerMapが見つかりません。既存のspeakerフィールドを使用します。');
-      return messages;
+      throw new Error(`[Formatter] SpeakerMapが見つかりません: speakers_${roomId}.json`);
     }
 
     return messages.map(item => {
       const speakerInfo = speakerMap.speakers[item.message_id];
-      if (speakerInfo) {
-        return { ...item, speaker: speakerInfo.speaker_name };
+      if (!speakerInfo) {
+        console.warn(`[Formatter] message_id ${item.message_id} のSpeaker情報が見つかりません。デフォルト値を使用します。`);
+        return { ...item, speaker: '不明' };
       }
-      // フォールバック: 既存のspeakerフィールドをそのまま使用
-      return item;
+      return { ...item, speaker: speakerInfo.speaker_name };
     });
   }
 
@@ -87,11 +81,10 @@ export class MarkdownFormatter {
     messages: AnalyzedMessage[],
     speakerMapManager: SpeakerMapManager,
     roomId: string
-  ): Promise<AnalyzedMessage[]> {
+  ): Promise<(AnalyzedMessage & { speaker: string })[]> {
     const speakerMap = await speakerMapManager.load(roomId);
     if (!speakerMap) {
-      console.warn('[Formatter] SpeakerMapが見つかりません。従来の匿名化方式を使用します。');
-      return anonymizeSpeakers(messages);
+      throw new Error(`[Formatter] SpeakerMapが見つかりません: speakers_${roomId}.json`);
     }
 
     // account_id → 匿名IDのマッピングを作成
@@ -116,8 +109,8 @@ export class MarkdownFormatter {
     return messages.map(item => {
       const speakerInfo = speakerMap.speakers[item.message_id];
       if (!speakerInfo) {
-        // フォールバック
-        return item;
+        console.warn(`[Formatter] message_id ${item.message_id} のSpeaker情報が見つかりません。デフォルト値を使用します。`);
+        return { ...item, speaker: '不明' };
       }
 
       return {
@@ -130,8 +123,8 @@ export class MarkdownFormatter {
   /**
    * カテゴリ別にグループ化
    */
-  private groupByCategory(messages: AnalyzedMessage[]): Record<string, AnalyzedMessage[]> {
-    const grouped: Record<string, AnalyzedMessage[]> = {};
+  private groupByCategory(messages: (AnalyzedMessage & { speaker: string })[]): Record<string, (AnalyzedMessage & { speaker: string })[]> {
+    const grouped: Record<string, (AnalyzedMessage & { speaker: string })[]> = {};
     
     for (const msg of messages) {
       if (!grouped[msg.category]) {
@@ -183,7 +176,7 @@ ${roomInfo}${modelInfo}生成日時: ${now.toLocaleString('ja-JP')}
   /**
    * カテゴリセクション生成
    */
-  private generateCategorySection(category: string, items: AnalyzedMessage[]): string {
+  private generateCategorySection(category: string, items: (AnalyzedMessage & { speaker: string })[]): string {
     const emoji = this.getCategoryEmoji(category);
     let section = `## ${emoji} ${category}\n\n`;
 
@@ -198,7 +191,7 @@ ${roomInfo}${modelInfo}生成日時: ${now.toLocaleString('ja-JP')}
   /**
    * 個別メッセージブロック生成
    */
-  private generateMessageBlock(item: AnalyzedMessage): string {
+  private generateMessageBlock(item: AnalyzedMessage & { speaker: string }): string {
     return `### [汎用性: ${item.versatility}] ${item.title}
 
 - **発言者**: ${item.speaker}
