@@ -8,6 +8,9 @@ import type { ResolvedRole, TeamRole } from '../team/profiles.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
+// 環境変数から最大トークン数を取得（デフォルト: 2000）
+const MAX_TOKENS_FOR_ANALYSIS = parseInt(process.env.CLAUDE_MAX_TOKENS || '2000', 10);
+
 export interface AnalyzedMessage {
   message_id: string;
   category: string;
@@ -132,7 +135,7 @@ export class ClaudeAnalyzer {
       custom_id: `msg_${msg.message_id}`,
       params: {
         model: this.model,
-        max_tokens: 1500, // JSON出力には十分な容量を確保（formatted_contentが長い場合に対応）
+        max_tokens: MAX_TOKENS_FOR_ANALYSIS,
         messages: [{
           role: 'user' as const,
           content: this.createAnalysisPrompt(msg, roleResolver)
@@ -236,14 +239,34 @@ export class ClaudeAnalyzer {
             }
           } catch (e) {
             parseErrorCount++;
-            console.error(`[Claude] JSON parse error for ${result.custom_id}`);
-            console.error(`[Claude] Error: ${e instanceof Error ? e.message : String(e)}`);
-            console.error(`[Claude] Raw response (first 1000 chars): ${content.text.substring(0, 1000)}`);
-            console.error(`[Claude] Response length: ${content.text.length} chars`);
-            // 最後の部分も表示
-            if (content.text.length > 1000) {
-              console.error(`[Claude] Raw response (last 500 chars): ${content.text.substring(content.text.length - 500)}`);
+            const error = e instanceof Error ? e : new Error(String(e));
+            const errorMsg = error.message;
+
+            // エラー種別の判定と対処方法の提示
+            let errorType = 'unknown';
+            let suggestion = '';
+
+            if (errorMsg.includes('Unterminated string') || errorMsg.includes('Unexpected end of JSON')) {
+              errorType = 'truncated';
+              suggestion = `\n  💡 対処方法: .envファイルで CLAUDE_MAX_TOKENS を増やしてください\n     現在値: ${MAX_TOKENS_FOR_ANALYSIS}\n     推奨値: ${MAX_TOKENS_FOR_ANALYSIS + 500}`;
+            } else if (errorMsg.includes('Unexpected token')) {
+              errorType = 'format';
+              suggestion = '\n  💡 対処方法: JSON形式が不正です。プロンプトの指示を確認してください';
+            } else {
+              suggestion = '\n  💡 対処方法: JSONパースに失敗しました。応答内容を確認してください';
             }
+
+            console.error(`\n[Claude] ❌ JSON parse error for ${result.custom_id}`);
+            console.error(`[Claude] Error type: ${errorType}`);
+            console.error(`[Claude] Error: ${errorMsg}`);
+            console.error(`[Claude] Response length: ${content.text.length} chars`);
+            console.error(`[Claude] Current max_tokens: ${MAX_TOKENS_FOR_ANALYSIS}${suggestion}`);
+            console.error(`[Claude] Raw response (first 1000 chars):\n${content.text.substring(0, 1000)}`);
+
+            if (content.text.length > 1000) {
+              console.error(`[Claude] Raw response (last 500 chars):\n${content.text.substring(content.text.length - 500)}`);
+            }
+            console.error(''); // 空行
           }
         }
       } else if (result.result.type === 'errored') {
@@ -292,7 +315,7 @@ export class ClaudeAnalyzer {
         try {
           const response = await this.client.messages.create({
             model: this.model,
-            max_tokens: 1500, // JSON出力には十分な容量を確保
+            max_tokens: MAX_TOKENS_FOR_ANALYSIS,
             messages: [{
               role: 'user',
               content: this.createAnalysisPrompt(msg, roleResolver)
@@ -356,14 +379,34 @@ export class ClaudeAnalyzer {
 
               return { success: true, data: validItems, messageId: msg.message_id };
             } catch (parseError) {
-              console.error(`[Claude] JSON parse error for message ${msg.message_id}`);
-              console.error(`[Claude] Parse error: ${parseError instanceof Error ? parseError.message : String(parseError)}`);
-              console.error(`[Claude] Raw response (first 1000 chars): ${content.text.substring(0, 1000)}`);
-              console.error(`[Claude] Response length: ${content.text.length} chars`);
-              // 最後の部分も表示
-              if (content.text.length > 1000) {
-                console.error(`[Claude] Raw response (last 500 chars): ${content.text.substring(content.text.length - 500)}`);
+              const error = parseError instanceof Error ? parseError : new Error(String(parseError));
+              const errorMsg = error.message;
+
+              // エラー種別の判定と対処方法の提示
+              let errorType = 'unknown';
+              let suggestion = '';
+
+              if (errorMsg.includes('Unterminated string') || errorMsg.includes('Unexpected end of JSON')) {
+                errorType = 'truncated';
+                suggestion = `\n  💡 対処方法: .envファイルで CLAUDE_MAX_TOKENS を増やしてください\n     現在値: ${MAX_TOKENS_FOR_ANALYSIS}\n     推奨値: ${MAX_TOKENS_FOR_ANALYSIS + 500}`;
+              } else if (errorMsg.includes('Unexpected token')) {
+                errorType = 'format';
+                suggestion = '\n  💡 対処方法: JSON形式が不正です。プロンプトの指示を確認してください';
+              } else {
+                suggestion = '\n  💡 対処方法: JSONパースに失敗しました。応答内容を確認してください';
               }
+
+              console.error(`\n[Claude] ❌ JSON parse error for message ${msg.message_id}`);
+              console.error(`[Claude] Error type: ${errorType}`);
+              console.error(`[Claude] Parse error: ${errorMsg}`);
+              console.error(`[Claude] Response length: ${content.text.length} chars`);
+              console.error(`[Claude] Current max_tokens: ${MAX_TOKENS_FOR_ANALYSIS}${suggestion}`);
+              console.error(`[Claude] Raw response (first 1000 chars):\n${content.text.substring(0, 1000)}`);
+
+              if (content.text.length > 1000) {
+                console.error(`[Claude] Raw response (last 500 chars):\n${content.text.substring(content.text.length - 500)}`);
+              }
+              console.error(''); // 空行
               return { success: false, messageId: msg.message_id, error: parseError };
             }
           }
