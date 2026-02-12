@@ -308,7 +308,7 @@ export class ClaudeAnalyzer {
       const results = await Promise.all(promises);
 
       for (const result of results) {
-        if (result.success && 'data' in result) {
+        if (result.success && 'data' in result && result.data) {
           analyzed.push(result.data);
         } else {
           parseErrorCount++;
