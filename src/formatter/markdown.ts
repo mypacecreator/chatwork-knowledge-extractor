@@ -67,9 +67,19 @@ export class MarkdownFormatter {
    */
   private generateHeader(options: FormatOptions): string {
     const now = new Date();
-    const roomInfo = options.roomName
-      ? `対象ルーム: ${options.roomName}${options.roomId ? ` (ID: ${options.roomId})` : ''}\n`
-      : '';
+
+    // ルーム名の表示を anonymize フラグで制御
+    let roomInfo = '';
+    if (options.roomName || options.roomId) {
+      if (options.anonymize) {
+        // 匿名化時はIDのみ表示
+        roomInfo = options.roomId ? `対象ルーム: ID ${options.roomId}\n` : '';
+      } else {
+        // 内部用は実名表示
+        roomInfo = `対象ルーム: ${options.roomName}${options.roomId ? ` (ID: ${options.roomId})` : ''}\n`;
+      }
+    }
+
     const modelInfo = options.model ? `分析モデル: ${options.model}\n` : '';
 
     return `# Chatwork知見まとめ

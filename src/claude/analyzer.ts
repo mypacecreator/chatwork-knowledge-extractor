@@ -121,6 +121,12 @@ export class ClaudeAnalyzer {
   async analyzeBatch(messages: ChatworkMessage[], roleResolver?: (accountId: number) => ResolvedRole): Promise<AnalyzedMessage[]> {
     console.log(`[Claude] Batch API処理開始: ${messages.length}件のメッセージ`);
 
+    // メッセージIDから元のメッセージを取得できるようにマップを作成
+    const messagesMap = new Map<string, ChatworkMessage>();
+    for (const msg of messages) {
+      messagesMap.set(msg.message_id, msg);
+    }
+
     // Batch API用のリクエストを作成
     const requests = messages.map((msg, index) => ({
       custom_id: `msg_${msg.message_id}`,
@@ -182,7 +188,18 @@ export class ClaudeAnalyzer {
               jsonText = jsonMatch[1].trim();
             }
 
-            const parsed = JSON.parse(jsonText);
+            const parsed = JSON.parse(jsonText) as AnalyzedMessage;
+
+            // speaker検証・復元（第二防衛線）
+            // custom_idは "msg_1234567890" 形式なので、プレフィックスを除去
+            const messageId = result.custom_id.replace(/^msg_/, '');
+            const originalMessage = messagesMap.get(messageId);
+
+            if (originalMessage && /^発言者\d+$/.test(parsed.speaker)) {
+              console.warn(`[Claude] speaker フィールドが匿名化されています。復元します: ${result.custom_id}`);
+              parsed.speaker = originalMessage.account.name;
+            }
+
             analyzed.push(parsed);
           } catch (e) {
             parseErrorCount++;
@@ -265,7 +282,14 @@ export class ClaudeAnalyzer {
             jsonText = jsonText.replace(/^```(json)?/gm, '').replace(/```$/gm, '').trim();
 
             try {
-              const parsed = JSON.parse(jsonText);
+              const parsed = JSON.parse(jsonText) as AnalyzedMessage;
+
+              // speaker検証・復元（第二防衛線）
+              if (/^発言者\d+$/.test(parsed.speaker)) {
+                console.warn(`[Claude] speaker フィールドが匿名化されています。復元します: ${msg.message_id}`);
+                parsed.speaker = msg.account.name;
+              }
+
               return { success: true, data: parsed, messageId: msg.message_id };
             } catch (parseError) {
               console.error(`[Claude] JSON parse error for message ${msg.message_id}`);

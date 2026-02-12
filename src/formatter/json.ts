@@ -14,7 +14,7 @@ interface KnowledgeExport {
   export_date: string;
   model?: string;
   room?: {
-    name: string;
+    name?: string;  // 匿名化時は省略される可能性があるためoptional
     id: string;
   };
   total_items: number;
@@ -43,12 +43,20 @@ export class JSONFormatter {
       exportData.model = options.model;
     }
 
-    // ルーム情報を追加
-    if (options.roomName) {
-      exportData.room = {
-        name: options.roomName,
-        id: options.roomId || ''
-      };
+    // ルーム情報を追加（anonymize フラグで制御）
+    if (options.roomName || options.roomId) {
+      if (options.anonymize) {
+        // 匿名化時はIDのみ
+        exportData.room = {
+          id: options.roomId || ''
+        };
+      } else {
+        // 内部用は実名表示
+        exportData.room = {
+          name: options.roomName,
+          id: options.roomId || ''
+        };
+      }
     }
 
     // ファイル出力
