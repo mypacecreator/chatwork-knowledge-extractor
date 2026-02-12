@@ -199,19 +199,41 @@ export class ClaudeAnalyzer {
             // JSON文字列がまだ```で始まっている場合は除去（念のため）
             jsonText = jsonText.replace(/^```(json)?/gm, '').replace(/```$/gm, '').trim();
 
-            const parsed = JSON.parse(jsonText) as AnalyzedMessage;
+            const parsed = JSON.parse(jsonText);
+
+            // 配列形式の応答に対応（1つのメッセージから複数の知見を抽出する場合）
+            const items = Array.isArray(parsed) ? parsed : [parsed];
 
             // speaker検証・復元（第二防衛線）
             // custom_idは "msg_1234567890" 形式なので、プレフィックスを除去
             const messageId = result.custom_id.replace(/^msg_/, '');
             const originalMessage = messagesMap.get(messageId);
 
-            if (originalMessage && /^発言者\d+$/.test(parsed.speaker)) {
-              console.warn(`[Claude] speaker フィールドが匿名化されています。復元します: ${result.custom_id}`);
-              parsed.speaker = originalMessage.account.name;
-            }
+            for (const item of items) {
+              // 必須フィールドのバリデーション
+              if (!item.versatility || !item.category || !item.message_id) {
+                console.warn(`[Claude] 必須フィールド不足をスキップ: ${result.custom_id}`, item);
+                parseErrorCount++;
+                continue;
+              }
 
-            analyzed.push(parsed);
+              // speaker復元（複数パターンに対応）
+              if (originalMessage) {
+                const needsRestore =
+                  /^発言者\d+$/.test(item.speaker) ||  // 「発言者1」形式
+                  !item.speaker ||  // 空
+                  item.speaker === 'Member' ||  // ロール名
+                  item.speaker === 'Senior' ||
+                  item.speaker === 'Junior' ||
+                  item.speaker.toLowerCase() === item.speaker_role?.toLowerCase();  // speaker_roleと同じ
+
+                if (needsRestore) {
+                  console.warn(`[Claude] speaker フィールドを復元します: ${result.custom_id} (${item.speaker} → ${originalMessage.account.name})`);
+                  item.speaker = originalMessage.account.name;
+                }
+              }
+              analyzed.push(item as AnalyzedMessage);
+            }
           } catch (e) {
             parseErrorCount++;
             console.error(`[Claude] JSON parse error for ${result.custom_id}`);
@@ -298,15 +320,41 @@ export class ClaudeAnalyzer {
             jsonText = jsonText.replace(/^```(json)?/gm, '').replace(/```$/gm, '').trim();
 
             try {
-              const parsed = JSON.parse(jsonText) as AnalyzedMessage;
+              const parsed = JSON.parse(jsonText);
 
-              // speaker検証・復元（第二防衛線）
-              if (/^発言者\d+$/.test(parsed.speaker)) {
-                console.warn(`[Claude] speaker フィールドが匿名化されています。復元します: ${msg.message_id}`);
-                parsed.speaker = msg.account.name;
+              // 配列形式の応答に対応（1つのメッセージから複数の知見を抽出する場合）
+              const items = Array.isArray(parsed) ? parsed : [parsed];
+
+              // 必須フィールドのバリデーション & speaker復元
+              const validItems: AnalyzedMessage[] = [];
+              for (const item of items) {
+                // 必須フィールドチェック
+                if (!item.versatility || !item.category || !item.message_id) {
+                  console.warn(`[Claude] 必須フィールド不足をスキップ: ${msg.message_id}`, item);
+                  continue;
+                }
+
+                // speaker復元（複数パターンに対応）
+                const needsRestore =
+                  /^発言者\d+$/.test(item.speaker) ||  // 「発言者1」形式
+                  !item.speaker ||  // 空
+                  item.speaker === 'Member' ||  // ロール名
+                  item.speaker === 'Senior' ||
+                  item.speaker === 'Junior' ||
+                  item.speaker.toLowerCase() === item.speaker_role?.toLowerCase();  // speaker_roleと同じ
+
+                if (needsRestore) {
+                  console.warn(`[Claude] speaker フィールドを復元します: ${msg.message_id} (${item.speaker} → ${msg.account.name})`);
+                  item.speaker = msg.account.name;
+                }
+                validItems.push(item as AnalyzedMessage);
               }
 
-              return { success: true, data: parsed, messageId: msg.message_id };
+              if (validItems.length === 0) {
+                return { success: false, messageId: msg.message_id, error: new Error('No valid items after validation') };
+              }
+
+              return { success: true, data: validItems, messageId: msg.message_id };
             } catch (parseError) {
               console.error(`[Claude] JSON parse error for message ${msg.message_id}`);
               console.error(`[Claude] Parse error: ${parseError instanceof Error ? parseError.message : String(parseError)}`);
@@ -330,7 +378,12 @@ export class ClaudeAnalyzer {
 
       for (const result of results) {
         if (result.success && 'data' in result && result.data) {
-          analyzed.push(result.data);
+          // 配列形式の応答に対応（1つのメッセージから複数の知見）
+          if (Array.isArray(result.data)) {
+            analyzed.push(...result.data);
+          } else {
+            analyzed.push(result.data);
+          }
         } else {
           parseErrorCount++;
         }
