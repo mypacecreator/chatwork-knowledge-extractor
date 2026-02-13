@@ -228,7 +228,8 @@ export class MessageCacheManager {
       const content = await readFile(cachePath, 'utf-8');
       return JSON.parse(content) as AnalysisCache;
     } catch (e) {
-      this.logger.error(`分析結果読み込みエラー: ${e}`);
+      const errorMsg = e instanceof Error ? e.message : String(e);
+      this.logger.error(`分析結果読み込みエラー: ${errorMsg}`, e);
       return null;
     }
   }

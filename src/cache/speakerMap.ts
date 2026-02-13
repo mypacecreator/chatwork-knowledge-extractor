@@ -53,7 +53,8 @@ export class SpeakerMapManager {
       const content = await readFile(cachePath, 'utf-8');
       return JSON.parse(content) as SpeakerMapCache;
     } catch (e) {
-      this.logger.error(`読み込みエラー: ${e}`);
+      const errorMsg = e instanceof Error ? e.message : String(e);
+      this.logger.error(`読み込みエラー: ${errorMsg}`, e);
       return null;
     }
   }

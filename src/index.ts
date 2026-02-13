@@ -362,8 +362,8 @@ async function main() {
     }
 
   } catch (error) {
-    logger.error('\nエラーが発生しました:');
-    logger.error(error as string);
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    logger.error(`\nエラーが発生しました: ${errorMsg}`, error);
     process.exit(1);
   }
 }

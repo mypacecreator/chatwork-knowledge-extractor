@@ -267,9 +267,9 @@ export class ClaudeAnalyzer {
               suggestion = '\n  💡 対処方法: JSONパースに失敗しました。応答内容を確認してください';
             }
 
-            console.error(`\n[Claude] ❌ JSON parse error for ${result.custom_id}`);
+            this.logger.error(`\n❌ JSON parse error for ${result.custom_id}`);
             this.logger.error(`Error type: ${errorType}`);
-            this.logger.error(`Error: ${errorMsg}`);
+            this.logger.error(`Error: ${errorMsg}`, error);
             this.logger.error(`Response length: ${content.text.length} chars`);
             this.logger.error(`Current max_tokens: ${currentMaxTokens} (env var: "${process.env.CLAUDE_MAX_TOKENS || 'not set'}")${suggestion}`);
             this.logger.error(`Raw response (first 1000 chars):\n${content.text.substring(0, 1000)}`);
@@ -404,9 +404,9 @@ export class ClaudeAnalyzer {
                 suggestion = '\n  💡 対処方法: JSONパースに失敗しました。応答内容を確認してください';
               }
 
-              console.error(`\n[Claude] ❌ JSON parse error for message ${msg.message_id}`);
+              this.logger.error(`\n❌ JSON parse error for message ${msg.message_id}`);
               this.logger.error(`Error type: ${errorType}`);
-              this.logger.error(`Parse error: ${errorMsg}`);
+              this.logger.error(`Parse error: ${errorMsg}`, error);
               this.logger.error(`Response length: ${content.text.length} chars`);
               this.logger.error(`Current max_tokens: ${currentMaxTokens} (env var: "${process.env.CLAUDE_MAX_TOKENS || 'not set'}")${suggestion}`);
               this.logger.error(`Raw response (first 1000 chars):\n${content.text.substring(0, 1000)}`);
