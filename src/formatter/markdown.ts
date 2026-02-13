@@ -3,6 +3,7 @@ import { writeFile } from 'fs/promises';
 import { mkdir } from 'fs/promises';
 import { dirname } from 'path';
 import { SpeakerMapManager } from '../cache/speakerMap.js';
+import { MessageCacheManager } from '../cache/messages.js';
 import { Logger } from '../utils/logger.js';
 
 export interface FormatOptions {
@@ -27,7 +28,8 @@ export class MarkdownFormatter {
     outputPath: string,
     options: FormatOptions = {},
     speakerMapManager: SpeakerMapManager,
-    roomId: string
+    roomId: string,
+    messageCacheManager?: MessageCacheManager
   ): Promise<void> {
     let items: (AnalyzedMessage & { speaker: string })[];
 
@@ -47,7 +49,7 @@ export class MarkdownFormatter {
     let markdown = this.generateHeader(options);
 
     for (const [category, categoryItems] of Object.entries(grouped)) {
-      markdown += this.generateCategorySection(category, categoryItems);
+      markdown += await this.generateCategorySection(category, categoryItems, options.anonymize || false, messageCacheManager, roomId);
     }
 
     // ファイル出力
@@ -75,7 +77,10 @@ export class MarkdownFormatter {
         this.logger.warn(`message_id ${item.message_id} のSpeaker情報が見つかりません。デフォルト値を使用します。`);
         return { ...item, speaker: '不明' };
       }
-      return { ...item, speaker: speakerInfo.speaker_name };
+      // ロール情報があれば表示
+      const roleLabel = this.getRoleLabel(speakerInfo.speaker_role);
+      const speaker = roleLabel ? `${speakerInfo.speaker_name} (${roleLabel})` : speakerInfo.speaker_name;
+      return { ...item, speaker };
     });
   }
 
@@ -182,12 +187,24 @@ ${roomInfo}${modelInfo}生成日時: ${now.toLocaleString('ja-JP')}
   /**
    * カテゴリセクション生成
    */
-  private generateCategorySection(category: string, items: (AnalyzedMessage & { speaker: string })[]): string {
+  private async generateCategorySection(
+    category: string, 
+    items: (AnalyzedMessage & { speaker: string })[], 
+    isAnonymized: boolean,
+    messageCacheManager: MessageCacheManager | undefined,
+    roomId: string
+  ): Promise<string> {
     const emoji = this.getCategoryEmoji(category);
     let section = `## ${emoji} ${category}\n\n`;
 
+    // パフォーマンス最適化: message_id → 元発言のマップを事前作成
+    let messageMap: Map<string, string> | null = null;
+    if (!isAnonymized && messageCacheManager) {
+      messageMap = await this.createMessageMap(messageCacheManager, roomId);
+    }
+
     for (const item of items) {
-      section += this.generateMessageBlock(item);
+      section += await this.generateMessageBlock(item, isAnonymized, messageMap);
       section += '\n---\n\n';
     }
 
@@ -195,18 +212,62 @@ ${roomInfo}${modelInfo}生成日時: ${now.toLocaleString('ja-JP')}
   }
 
   /**
+   * メッセージIDからメッセージ本文へのマップを作成（O(1)ルックアップ用）
+   */
+  private async createMessageMap(
+    messageCacheManager: MessageCacheManager,
+    roomId: string
+  ): Promise<Map<string, string>> {
+    const messageMap = new Map<string, string>();
+    try {
+      const cache = await messageCacheManager.load(roomId);
+      if (cache) {
+        for (const msg of cache.messages) {
+          messageMap.set(msg.message_id, msg.body);
+        }
+      }
+    } catch (e) {
+      this.logger.warn(`メッセージキャッシュの読み込みに失敗 (roomId: ${roomId})`, e);
+    }
+    return messageMap;
+  }
+
+  /**
    * 個別メッセージブロック生成
    */
-  private generateMessageBlock(item: AnalyzedMessage & { speaker: string }): string {
-    return `### [汎用性: ${item.versatility}] ${item.title}
+  private async generateMessageBlock(
+    item: AnalyzedMessage & { speaker: string },
+    isAnonymized: boolean,
+    messageMap: Map<string, string> | null
+  ): Promise<string> {
+    let block = `### [汎用性: ${item.versatility}] ${item.title}
 
-- **発言者**: ${item.speaker}
-- **日時**: ${new Date(item.date).toLocaleString('ja-JP')}
-- **タグ**: ${item.tags.map(tag => `\`${tag}\``).join(', ')}
+- 発言者: ${item.speaker}
+- 日時: ${new Date(item.date).toLocaleString('ja-JP')}
+- タグ: ${item.tags.map(tag => `\`${tag}\``).join(', ')}
 
 ${item.formatted_content}
 
 `;
+
+    // 内部用の場合のみ、元発言を追加
+    if (!isAnonymized && messageMap) {
+      const originalMessage = messageMap.get(item.message_id);
+      if (originalMessage) {
+        block += `元発言 (メッセージID: ${item.message_id}):\n\n${this.formatAsQuotedBlock(originalMessage)}\n\n`;
+      }
+    }
+
+    return block;
+  }
+
+  /**
+   * テキストをMarkdownの引用ブロック形式に変換
+   */
+  private formatAsQuotedBlock(text: string): string {
+    // 末尾の改行を除去してから引用符を付ける
+    const trimmed = text.replace(/\n+$/, '');
+    return `> ${trimmed.replace(/\n/g, '\n> ')}`;
   }
 
   /**
@@ -221,5 +282,19 @@ ${item.formatted_content}
       '定型的なやりとり': '📌'
     };
     return emojiMap[category] || '📄';
+  }
+
+  /**
+   * ロールをラベル表示に変換
+   */
+  private getRoleLabel(role: string | undefined): string {
+    if (!role) return '';
+    const labelMap: Record<string, string> = {
+      'senior': 'Senior',
+      'member': 'Member',
+      'junior': 'Junior'
+    };
+    // 未知のロールは空文字を返す（一貫性を保つため）
+    return labelMap[role] || '';
   }
 }
