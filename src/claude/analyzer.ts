@@ -9,9 +9,10 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 // 環境変数から最大トークン数を取得（デフォルト: 2000）
-const MAX_TOKENS_FOR_ANALYSIS = parseInt(process.env.CLAUDE_MAX_TOKENS || '2000', 10);
-console.log(`[Debug] CLAUDE_MAX_TOKENS environment variable: "${process.env.CLAUDE_MAX_TOKENS}"`);
-console.log(`[Debug] Parsed MAX_TOKENS_FOR_ANALYSIS: ${MAX_TOKENS_FOR_ANALYSIS}`);
+// 注: dotenv.config() より前にモジュールが評価される可能性があるため、関数として定義
+function getMaxTokens(): number {
+  return parseInt(process.env.CLAUDE_MAX_TOKENS || '2000', 10);
+}
 
 export interface AnalyzedMessage {
   message_id: string;
@@ -52,6 +53,10 @@ export class ClaudeAnalyzer {
     this.apiMode = options.apiMode || 'batch'; // デフォルトはbatch（後方互換性）
     this.loadPromptTemplate(options.promptTemplatePath);
     this.loadFeedback(options.feedbackPath);
+
+    // デバッグ: max_tokens設定を表示
+    const maxTokens = getMaxTokens();
+    console.log(`[Claude] Max tokens for analysis: ${maxTokens} (env: "${process.env.CLAUDE_MAX_TOKENS || 'not set'}")`);
   }
 
   /**
@@ -129,7 +134,7 @@ export class ClaudeAnalyzer {
       custom_id: `msg_${msg.message_id}`,
       params: {
         model: this.model,
-        max_tokens: MAX_TOKENS_FOR_ANALYSIS,
+        max_tokens: getMaxTokens(),
         messages: [{
           role: 'user' as const,
           content: this.createAnalysisPrompt(msg, roleResolver)
@@ -248,9 +253,10 @@ export class ClaudeAnalyzer {
             let errorType = 'unknown';
             let suggestion = '';
 
+            const currentMaxTokens = getMaxTokens();
             if (errorMsg.includes('Unterminated string') || errorMsg.includes('Unexpected end of JSON')) {
               errorType = 'truncated';
-              suggestion = `\n  💡 対処方法: .envファイルで CLAUDE_MAX_TOKENS を増やしてください\n     現在値: ${MAX_TOKENS_FOR_ANALYSIS}\n     推奨値: ${MAX_TOKENS_FOR_ANALYSIS + 500}`;
+              suggestion = `\n  💡 対処方法: .envファイルで CLAUDE_MAX_TOKENS を増やしてください\n     現在値: ${currentMaxTokens}\n     推奨値: ${currentMaxTokens + 500}`;
             } else if (errorMsg.includes('Unexpected token')) {
               errorType = 'format';
               suggestion = '\n  💡 対処方法: JSON形式が不正です。プロンプトの指示を確認してください';
@@ -262,7 +268,7 @@ export class ClaudeAnalyzer {
             console.error(`[Claude] Error type: ${errorType}`);
             console.error(`[Claude] Error: ${errorMsg}`);
             console.error(`[Claude] Response length: ${content.text.length} chars`);
-            console.error(`[Claude] Current max_tokens: ${MAX_TOKENS_FOR_ANALYSIS} (env var: "${process.env.CLAUDE_MAX_TOKENS || 'not set'}")${suggestion}`);
+            console.error(`[Claude] Current max_tokens: ${currentMaxTokens} (env var: "${process.env.CLAUDE_MAX_TOKENS || 'not set'}")${suggestion}`);
             console.error(`[Claude] Raw response (first 1000 chars):\n${content.text.substring(0, 1000)}`);
 
             if (content.text.length > 1000) {
@@ -317,7 +323,7 @@ export class ClaudeAnalyzer {
         try {
           const response = await this.client.messages.create({
             model: this.model,
-            max_tokens: MAX_TOKENS_FOR_ANALYSIS,
+            max_tokens: getMaxTokens(),
             messages: [{
               role: 'user',
               content: this.createAnalysisPrompt(msg, roleResolver)
@@ -383,10 +389,11 @@ export class ClaudeAnalyzer {
               // エラー種別の判定と対処方法の提示
               let errorType = 'unknown';
               let suggestion = '';
+              const currentMaxTokens = getMaxTokens();
 
               if (errorMsg.includes('Unterminated string') || errorMsg.includes('Unexpected end of JSON')) {
                 errorType = 'truncated';
-                suggestion = `\n  💡 対処方法: .envファイルで CLAUDE_MAX_TOKENS を増やしてください\n     現在値: ${MAX_TOKENS_FOR_ANALYSIS}\n     推奨値: ${MAX_TOKENS_FOR_ANALYSIS + 500}`;
+                suggestion = `\n  💡 対処方法: .envファイルで CLAUDE_MAX_TOKENS を増やしてください\n     現在値: ${currentMaxTokens}\n     推奨値: ${currentMaxTokens + 500}`;
               } else if (errorMsg.includes('Unexpected token')) {
                 errorType = 'format';
                 suggestion = '\n  💡 対処方法: JSON形式が不正です。プロンプトの指示を確認してください';
@@ -398,7 +405,7 @@ export class ClaudeAnalyzer {
               console.error(`[Claude] Error type: ${errorType}`);
               console.error(`[Claude] Parse error: ${errorMsg}`);
               console.error(`[Claude] Response length: ${content.text.length} chars`);
-              console.error(`[Claude] Current max_tokens: ${MAX_TOKENS_FOR_ANALYSIS} (env var: "${process.env.CLAUDE_MAX_TOKENS || 'not set'}")${suggestion}`);
+              console.error(`[Claude] Current max_tokens: ${currentMaxTokens} (env var: "${process.env.CLAUDE_MAX_TOKENS || 'not set'}")${suggestion}`);
               console.error(`[Claude] Raw response (first 1000 chars):\n${content.text.substring(0, 1000)}`);
 
               if (content.text.length > 1000) {
