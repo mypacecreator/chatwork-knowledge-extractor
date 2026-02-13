@@ -1,8 +1,8 @@
 import type { AnalyzedMessage } from '../claude/analyzer.js';
 import { writeFile, mkdir } from 'fs/promises';
 import { dirname } from 'path';
-import { anonymizeSpeakers } from './anonymize.js';
 import { SpeakerMapManager } from '../cache/speakerMap.js';
+import { Logger } from '../utils/logger.js';
 
 export interface FormatOptions {
   roomName?: string;
@@ -23,6 +23,12 @@ interface KnowledgeExport {
 }
 
 export class JSONFormatter {
+  private logger: Logger;
+
+  constructor() {
+    this.logger = new Logger('JSON');
+  }
+
   /**
    * 分析結果をJSON形式で出力
    */
@@ -74,7 +80,7 @@ export class JSONFormatter {
     // ファイル出力
     await mkdir(dirname(outputPath), { recursive: true });
     await writeFile(outputPath, JSON.stringify(exportData, null, 2), 'utf-8');
-    console.log(`[JSON] 出力完了: ${outputPath}`);
+    this.logger.info(`出力完了: ${outputPath}`);
   }
 
   /**
@@ -93,7 +99,7 @@ export class JSONFormatter {
     return messages.map(item => {
       const speakerInfo = speakerMap.speakers[item.message_id];
       if (!speakerInfo) {
-        console.warn(`[Formatter] message_id ${item.message_id} のSpeaker情報が見つかりません。デフォルト値を使用します。`);
+        this.logger.warn(`message_id ${item.message_id} のSpeaker情報が見つかりません。デフォルト値を使用します。`);
         return { ...item, speaker: '不明' };
       }
       return { ...item, speaker: speakerInfo.speaker_name };
@@ -136,7 +142,7 @@ export class JSONFormatter {
     return messages.map(item => {
       const speakerInfo = speakerMap.speakers[item.message_id];
       if (!speakerInfo) {
-        console.warn(`[Formatter] message_id ${item.message_id} のSpeaker情報が見つかりません。デフォルト値を使用します。`);
+        this.logger.warn(`message_id ${item.message_id} のSpeaker情報が見つかりません。デフォルト値を使用します。`);
         return { ...item, speaker: '不明' };
       }
 

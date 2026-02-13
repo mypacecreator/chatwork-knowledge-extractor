@@ -7,6 +7,7 @@ import { MessageCacheManager } from './cache/messages.js';
 import { SpeakerMapManager } from './cache/speakerMap.js';
 import { TeamProfileManager } from './team/profiles.js';
 import { filterMessages } from './utils/messageFilter.js';
+import { Logger } from './utils/logger.js';
 import { join } from 'path';
 
 // 環境変数読み込み
@@ -25,13 +26,15 @@ function parsePositiveInt(value: string | undefined, defaultValue: number): numb
 }
 
 async function main() {
+  const logger = new Logger('Main');
+
   // コマンドライン引数チェック
   const args = process.argv.slice(2);
   const isReanalyze = args.includes('--reanalyze');
 
-  console.log('=== Chatwork Knowledge Extractor ===\n');
+  logger.info('=== Chatwork Knowledge Extractor ===\n');
   if (isReanalyze) {
-    console.log('モード: 再出力（キャッシュから出力のみ、Claude API呼び出しなし）\n');
+    logger.info('モード: 再出力（キャッシュから出力のみ、Claude API呼び出しなし）\n');
   }
 
   // 環境変数チェック
@@ -49,8 +52,7 @@ async function main() {
       .map(v => v.trim());
 
   // EXTRACT_FROM: 日付形式（YYYY-MM-DD）または日数
-  // 後方互換のためDAYS_TO_EXTRACTもサポート
-  const extractFromRaw = process.env.EXTRACT_FROM || process.env.DAYS_TO_EXTRACT;
+  const extractFromRaw = process.env.EXTRACT_FROM;
 
   // メッセージフィルタ設定（環境変数で上書き可能）
   const filterConfig = {
@@ -61,7 +63,7 @@ async function main() {
 
   // フィルタ設定のバリデーション
   if (filterConfig.minLength > filterConfig.maxLength) {
-    console.warn(`警告: FILTER_MIN_LENGTH(${filterConfig.minLength}) > FILTER_MAX_LENGTH(${filterConfig.maxLength}). maxLengthをminLengthに合わせます`);
+    logger.warn(`警告: FILTER_MIN_LENGTH(${filterConfig.minLength}) > FILTER_MAX_LENGTH(${filterConfig.maxLength}). maxLengthをminLengthに合わせます`);
     filterConfig.maxLength = Math.max(filterConfig.minLength, filterConfig.maxLength);
   }
 
@@ -70,14 +72,14 @@ async function main() {
 
   // reanalyzeモードではClaude APIキーは不要
   if (!chatworkToken || !roomId) {
-    console.error('エラー: CHATWORK_API_TOKEN, CHATWORK_ROOM_ID が設定されていません');
-    console.error('.envファイルを確認してください');
+    logger.error('エラー: CHATWORK_API_TOKEN, CHATWORK_ROOM_ID が設定されていません');
+    logger.error('.envファイルを確認してください');
     process.exit(1);
   }
 
   if (!isReanalyze && !claudeApiKey) {
-    console.error('エラー: CLAUDE_API_KEY が設定されていません');
-    console.error('.envファイルを確認してください');
+    logger.error('エラー: CLAUDE_API_KEY が設定されていません');
+    logger.error('.envファイルを確認してください');
     process.exit(1);
   }
 
@@ -93,28 +95,28 @@ async function main() {
 
     if (isReanalyze) {
       // === 再出力モード: キャッシュから分析結果を読み込み ===
-      console.log('[1/3] 分析結果キャッシュを読み込み中...\n');
+      logger.info('[1/3] 分析結果キャッシュを読み込み中...\n');
       await cacheManager.showAnalysisStats(roomId);
 
       const cachedResults = await cacheManager.loadAnalysisResults(roomId);
 
       if (cachedResults.length === 0) {
-        console.log('分析結果のキャッシュがありません。先に通常モードで実行してください。');
+        logger.info('分析結果のキャッシュがありません。先に通常モードで実行してください。');
         return;
       }
 
-      console.log(`キャッシュから${cachedResults.length}件の分析結果を読み込み\n`);
+      logger.info(`キャッシュから${cachedResults.length}件の分析結果を読み込み\n`);
 
       // 期間フィルタ（キャッシュの分析結果にも適用）
       let filteredResults = cachedResults;
       if (extractFromRaw) {
         const beforeCount = filteredResults.length;
         filteredResults = filterAnalysisResultsByDate(filteredResults, extractFromRaw);
-        console.log(`期間フィルタ適用: ${beforeCount}件 → ${filteredResults.length}件`);
+        logger.info(`期間フィルタ適用: ${beforeCount}件 → ${filteredResults.length}件`);
       }
 
       // 汎用性フィルタ
-      console.log(`汎用性フィルタ: ${outputVersatility.join(', ')} のみ出力`);
+      logger.info(`汎用性フィルタ: ${outputVersatility.join(', ')} のみ出力`);
       knowledgeItems = filteredResults.filter(
           item => item.versatility !== 'exclude'
               && item.category !== '除外対象'
@@ -124,17 +126,17 @@ async function main() {
       // キャッシュからモデル情報を取得
       const analysisCache = await cacheManager.loadAnalysisCache(roomId);
       usedModel = analysisCache?.model || claudeModel || '(不明)';
-      console.log(`分析モデル: ${usedModel}`);
-      console.log(`フィルタ後: ${knowledgeItems.length}件が形式知化対象\n`);
+      logger.info(`分析モデル: ${usedModel}`);
+      logger.info(`フィルタ後: ${knowledgeItems.length}件が形式知化対象\n`);
 
     } else {
       // === 通常モード: 取得 → 分析 → 出力 ===
-      console.log('[1/5] Chatworkメッセージ取得中...\n');
+      logger.info('[1/5] Chatworkメッセージ取得中...\n');
       const chatworkClient = new ChatworkClient(chatworkToken);
 
       // ルーム情報を取得
       const roomInfo = await chatworkClient.getRoomInfo(roomId);
-      console.log(`対象ルーム: ${roomInfo.name} (ID: ${roomId})\n`);
+      logger.info(`対象ルーム: ${roomInfo.name} (ID: ${roomId})\n`);
 
       const fetchResult = await chatworkClient.getAllMessages(roomId, maxMessages);
       let messages = fetchResult.messages;
@@ -142,17 +144,17 @@ async function main() {
       // 警告を収集
       allWarnings.push(...fetchResult.warnings);
 
-      console.log(`取得完了: ${messages.length}件\n`);
+      logger.info(`取得完了: ${messages.length}件\n`);
 
       // 期間フィルタ
       if (extractFromRaw) {
         const { messages: filtered, description } = chatworkClient.filterByExtractFrom(messages, extractFromRaw);
         messages = filtered;
-        console.log(`期間フィルタ適用（${description}）: ${messages.length}件\n`);
+        logger.info(`期間フィルタ適用（${description}）: ${messages.length}件\n`);
       }
 
       if (messages.length === 0) {
-        console.log('メッセージがありません。処理を終了します。');
+        logger.info('メッセージがありません。処理を終了します。');
         return;
       }
 
@@ -160,7 +162,7 @@ async function main() {
       const analyzedIds = await cacheManager.getAnalyzedIds(roomId);
       const unanalyzedMessages = cacheManager.getUnanalyzedMessages(messages, analyzedIds);
 
-      console.log(`未分析メッセージ: ${unanalyzedMessages.length}件\n`);
+      logger.info(`未分析メッセージ: ${unanalyzedMessages.length}件\n`);
 
       if (unanalyzedMessages.length > 0) {
         const roleResolver = teamProfileManager!.hasProfiles()
@@ -168,19 +170,19 @@ async function main() {
           : undefined;
 
         // メッセージの事前フィルタリング（知見が含まれない可能性が高いものを除外）
-        console.log('事前フィルタリング中...');
+        logger.info('事前フィルタリング中...');
         const { filtered: filteredMessages, stats } = filterMessages(unanalyzedMessages, filterConfig);
-        console.log(`  - 対象: ${stats.total}件`);
-        console.log(`  - スキップ: ${stats.skipped}件 (短すぎる/定型文)`);
-        console.log(`  - 切り詰め: ${stats.truncated}件 (${filterConfig.maxLength}文字超)`);
-        console.log(`  - API送信: ${filteredMessages.length}件\n`);
+        logger.info(`  - 対象: ${stats.total}件`);
+        logger.info(`  - スキップ: ${stats.skipped}件 (短すぎる/定型文)`);
+        logger.info(`  - 切り詰め: ${stats.truncated}件 (${filterConfig.maxLength}文字超)`);
+        logger.info(`  - API送信: ${filteredMessages.length}件\n`);
 
         if (stats.skipped > 0) {
-          console.log('スキップ理由の内訳:');
+          logger.info('スキップ理由の内訳:');
           for (const [reason, count] of Object.entries(stats.reasons)) {
-            console.log(`  - ${reason}: ${count}件`);
+            logger.info(`  - ${reason}: ${count}件`);
           }
-          console.log('');
+          logger.info('');
         }
 
         // 発言者マッピングを保存（フィルタリング後のメッセージで保存）
@@ -188,7 +190,7 @@ async function main() {
 
         if (filteredMessages.length > 0) {
           // Step 2: Claude APIで分析（フィルタリング済みメッセージのみ）
-          console.log('[2/5] Claude APIで分析中...\n');
+          logger.info('[2/5] Claude APIで分析中...\n');
 
           const analyzer = new ClaudeAnalyzer(claudeApiKey!, {
             promptTemplatePath,
@@ -197,12 +199,12 @@ async function main() {
             apiMode: claudeApiMode
           });
           usedModel = analyzer.getModel();
-          console.log(`使用モデル: ${usedModel}`);
+          logger.info(`使用モデル: ${usedModel}`);
 
           if (claudeApiMode === 'batch') {
-            console.log('※ Batch API: 50%割引、処理時間は数分〜24時間\n');
+            logger.info('※ Batch API: 50%割引、処理時間は数分〜24時間\n');
           } else {
-            console.log('※ Realtime API: 通常価格、処理時間は数秒〜数分\n');
+            logger.info('※ Realtime API: 通常価格、処理時間は数秒〜数分\n');
           }
 
           const roleResolver = teamProfileManager!.hasProfiles()
@@ -215,13 +217,13 @@ async function main() {
           await cacheManager.markAsAnalyzed(roomId, newlyAnalyzedIds);
 
           // 分析結果をキャッシュに保存（モデル情報付き）
-          console.log('\n[3/5] 分析結果をキャッシュに保存中...\n');
+          logger.info('\n[3/5] 分析結果をキャッシュに保存中...\n');
           await cacheManager.saveAnalysisResults(roomId, analyzed, usedModel);
         } else {
-          console.log('フィルタリング後、新規の分析対象メッセージはありません。キャッシュがあれば出力します。\n');
+          logger.info('フィルタリング後、新規の分析対象メッセージはありません。キャッシュがあれば出力します。\n');
         }
       } else {
-        console.log('新しく分析するメッセージはありません。キャッシュがあれば出力します。\n');
+        logger.info('新しく分析するメッセージはありません。キャッシュがあれば出力します。\n');
       }
 
       // 既存キャッシュから分析結果を読み込み
@@ -231,18 +233,18 @@ async function main() {
       if (extractFromRaw) {
         const beforeCount = allResults.length;
         allResults = filterAnalysisResultsByDate(allResults, extractFromRaw);
-        console.log(`期間フィルタ適用（出力対象）: ${beforeCount}件 → ${allResults.length}件`);
+        logger.info(`期間フィルタ適用（出力対象）: ${beforeCount}件 → ${allResults.length}件`);
       }
 
-      console.log(`汎用性フィルタ: ${outputVersatility.join(', ')} のみ出力`);
-      console.log(`[Debug] フィルタリング前: ${allResults.length}件`);
+      logger.info(`汎用性フィルタ: ${outputVersatility.join(', ')} のみ出力`);
+      logger.debug(`フィルタリング前: ${allResults.length}件`);
 
       // デバッグ: versatility分布を表示
       const versatilityDist = allResults.reduce((acc, item) => {
         acc[item.versatility] = (acc[item.versatility] || 0) + 1;
         return acc;
       }, {} as Record<string, number>);
-      console.log(`[Debug] versatility分布:`, versatilityDist);
+      logger.debug(`versatility分布:`, versatilityDist);
 
       knowledgeItems = allResults.filter(
           item => item.versatility !== 'exclude'
@@ -250,7 +252,7 @@ async function main() {
               && outputVersatility.includes(item.versatility)
       );
 
-      console.log(`[Debug] フィルタリング後: ${knowledgeItems.length}件`);
+      logger.debug(`フィルタリング後: ${knowledgeItems.length}件`);
 
       // usedModelがまだ設定されていない場合（新規分析なし）、キャッシュから取得
       if (!usedModel) {
@@ -258,11 +260,11 @@ async function main() {
         usedModel = analysisCache?.model || claudeModel || '(不明)';
       }
 
-      console.log(`全体で ${knowledgeItems.length}件が形式知化対象\n`);
+      logger.info(`全体で ${knowledgeItems.length}件が形式知化対象\n`);
     }
 
     if (knowledgeItems.length === 0) {
-      console.log('出力対象の知見がありません。');
+      logger.info('出力対象の知見がありません。');
       return;
     }
 
@@ -292,7 +294,7 @@ async function main() {
     const stepPrefix2 = isReanalyze ? '[3/3]' : '[5/5]';
 
     // === 内部用Markdown出力（発言者あり） ===
-    console.log(`${stepPrefix} 内部用Markdown出力中（発言者あり）...\n`);
+    logger.info(`${stepPrefix} 内部用Markdown出力中（発言者あり）...\n`);
     const internalDir = join(outputDir, 'internal');
     const internalMdPath = join(internalDir, `${baseFilename}.md`);
     const markdownFormatter = new MarkdownFormatter();
@@ -302,7 +304,7 @@ async function main() {
     }, speakerMapManager, roomId);
 
     // === 外部用Markdown出力（匿名化） ===
-    console.log(`\n${stepPrefix2} 外部用出力中（匿名化）...\n`);
+    logger.info(`\n${stepPrefix2} 外部用出力中（匿名化）...\n`);
     const externalDir = join(outputDir, 'external');
     const externalMdPath = join(externalDir, `${baseFilename}.md`);
     await markdownFormatter.format(knowledgeItems, externalMdPath, {
@@ -319,14 +321,14 @@ async function main() {
     }, speakerMapManager, roomId);
 
     // 完了
-    console.log('\n=== 完了 ===');
-    console.log(`\n出力ファイル:`);
-    console.log(`  [内部用・発言者あり]`);
-    console.log(`  - ${internalMdPath}`);
-    console.log(`  [外部用・匿名化済み]`);
-    console.log(`  - ${externalMdPath}`);
-    console.log(`  - ${externalJsonPath}`);
-    console.log(`\n形式知化された知見: ${knowledgeItems.length}件`);
+    logger.info('\n=== 完了 ===');
+    logger.info(`\n出力ファイル:`);
+    logger.info(`  [内部用・発言者あり]`);
+    logger.info(`  - ${internalMdPath}`);
+    logger.info(`  [外部用・匿名化済み]`);
+    logger.info(`  - ${externalMdPath}`);
+    logger.info(`  - ${externalJsonPath}`);
+    logger.info(`\n形式知化された知見: ${knowledgeItems.length}件`);
 
     // カテゴリ別集計
     const categoryCount: Record<string, number> = {};
@@ -334,9 +336,9 @@ async function main() {
       categoryCount[item.category] = (categoryCount[item.category] || 0) + 1;
     }
 
-    console.log('\nカテゴリ別内訳:');
+    logger.info('\nカテゴリ別内訳:');
     for (const [category, count] of Object.entries(categoryCount)) {
-      console.log(`  ${category}: ${count}件`);
+      logger.info(`  ${category}: ${count}件`);
     }
 
     // 汎用性レベル別集計
@@ -345,23 +347,23 @@ async function main() {
       versatilityCount[item.versatility] = (versatilityCount[item.versatility] || 0) + 1;
     }
 
-    console.log('\n汎用性レベル別内訳:');
+    logger.info('\n汎用性レベル別内訳:');
     for (const [level, count] of Object.entries(versatilityCount)) {
-      console.log(`  ${level}: ${count}件`);
+      logger.info(`  ${level}: ${count}件`);
     }
 
     // 警告があれば表示
     if (allWarnings.length > 0) {
-      console.log('\n=== 警告 ===\n');
+      logger.info('\n=== 警告 ===\n');
       for (const warning of allWarnings) {
-        console.log(warning);
-        console.log('');
+        logger.info(warning);
+        logger.info('');
       }
     }
 
   } catch (error) {
-    console.error('\nエラーが発生しました:');
-    console.error(error);
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    logger.error(`\nエラーが発生しました: ${errorMsg}`, error);
     process.exit(1);
   }
 }
@@ -371,6 +373,7 @@ async function main() {
  * item.date（ISO文字列）を使って判定
  */
 function filterAnalysisResultsByDate(results: AnalyzedMessage[], extractFrom: string): AnalyzedMessage[] {
+  const logger = new Logger('Filter');
   const dateMatch = extractFrom.match(/^(\d{4})-(\d{2})-(\d{2})$/);
 
   let cutoffTime: number;
@@ -382,7 +385,7 @@ function filterAnalysisResultsByDate(results: AnalyzedMessage[], extractFrom: st
   } else {
     const days = parseInt(extractFrom, 10);
     if (isNaN(days)) {
-      console.warn(`[警告] EXTRACT_FROM の形式が不正です: ${extractFrom}`);
+      logger.warn(`EXTRACT_FROM の形式が不正です: ${extractFrom}`);
       return results;
     }
     cutoffTime = Date.now() - (days * 24 * 60 * 60 * 1000);

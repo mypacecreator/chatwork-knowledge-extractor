@@ -3,6 +3,10 @@
  * 明らかに知見が含まれないメッセージを事前除外し、API負荷を削減
  */
 
+import { Logger } from './logger.js';
+
+const logger = new Logger('Filter');
+
 export interface FilterConfig {
   minLength: number;               // 最小文字数（デフォルト: 10）
   maxLength: number;               // 最大文字数（デフォルト: 300、超過分は切り詰め）
@@ -102,7 +106,7 @@ export function shouldSkipMessage(
         return { skip: true, reason: `noise_pattern: ${pattern}` };
       }
     } catch (e) {
-      console.warn(`Invalid regex pattern: ${pattern}`, e);
+      logger.warn(`Invalid regex pattern: ${pattern}`, e);
     }
   }
 
@@ -116,7 +120,7 @@ export function shouldSkipMessage(
           return { skip: true, reason: `boilerplate_pattern: ${pattern}` };
         }
       } catch (e) {
-        console.warn(`Invalid regex pattern: ${pattern}`, e);
+        logger.warn(`Invalid regex pattern: ${pattern}`, e);
       }
     }
   }

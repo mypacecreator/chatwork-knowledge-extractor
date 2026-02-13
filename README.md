@@ -49,6 +49,7 @@ OUTPUT_DIR=./output
 | `CLAUDE_API_KEY` | ✅ | Claude APIキー |
 | `CLAUDE_MODEL` | - | 使用するClaudeモデル。デフォルト`claude-sonnet-4-5-20250929` |
 | `CLAUDE_API_MODE` | - | API種別。`batch`（50%割引、遅い）or `realtime`（通常価格、速い）。デフォルト`batch` |
+| `DEBUG_MODE` | - | デバッグモード。`true`で詳細ログ出力、`false`（デフォルト）で通常ログのみ |
 | `EXTRACT_FROM` | - | 分析対象期間。数字なら過去N日、日付（2025-01-01）ならその日以降 |
 | `MAX_MESSAGES` | - | 分析対象の最大件数。デフォルト500 |
 | `OUTPUT_DIR` | - | 出力先ディレクトリ。デフォルト`./output` |
@@ -186,6 +187,49 @@ CLAUDE_API_MODE=realtime
 | **Realtime API** | 30秒〜2分 | 約20円 |
 
 **推奨**: 少量のメッセージなら **Realtime API** がおすすめです。コスト差は微々たるもので、体感速度が劇的に改善します。
+
+---
+
+## ログ制御（デバッグモード）
+
+実行時のログ出力レベルを環境変数で制御できます。
+
+### 通常モード（デフォルト）
+
+```bash
+# DEBUG_MODE未設定または false
+npm start
+```
+
+**出力内容**:
+- ✅ エラー（ERROR）
+- ✅ 警告（WARN）
+- ✅ 通常情報（INFO）：進捗、統計、結果
+- ❌ デバッグ情報（DEBUG）：内部処理詳細は非表示
+
+### デバッグモード
+
+```bash
+# 詳細ログを出力
+DEBUG_MODE=true npm start
+```
+
+または `.env` に追加：
+
+```env
+DEBUG_MODE=true
+```
+
+**出力内容**:
+- ✅ すべてのログレベル（ERROR, WARN, INFO, DEBUG）
+- ✅ 内部処理の詳細情報
+- ✅ フィルタリング前後の件数
+- ✅ versatility分布の詳細
+
+**推奨用途**:
+- トラブルシューティング時
+- 処理内容の詳細確認時
+- 開発・カスタマイズ時
 
 ---
 

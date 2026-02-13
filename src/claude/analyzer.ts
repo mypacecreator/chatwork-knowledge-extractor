@@ -4,6 +4,7 @@ import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import type { ChatworkMessage } from '../chatwork/client.js';
 import type { ResolvedRole, TeamRole } from '../team/profiles.js';
+import { Logger } from '../utils/logger.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -46,8 +47,10 @@ export class ClaudeAnalyzer {
   private model: string;
   private apiMode: 'batch' | 'realtime';
   private feedbackExamples: FeedbackCorrection[] = [];
+  private logger: Logger;
 
   constructor(apiKey: string, options: AnalyzerOptions = {}) {
+    this.logger = new Logger('Claude');
     this.client = new Anthropic({ apiKey });
     this.model = options.model || DEFAULT_MODEL;
     this.apiMode = options.apiMode || 'batch'; // デフォルトはbatch（後方互換性）
@@ -56,7 +59,7 @@ export class ClaudeAnalyzer {
 
     // デバッグ: max_tokens設定を表示
     const maxTokens = getMaxTokens();
-    console.log(`[Claude] Max tokens for analysis: ${maxTokens} (env: "${process.env.CLAUDE_MAX_TOKENS || 'not set'}")`);
+    this.logger.debug(`Max tokens for analysis: ${maxTokens} (env: "${process.env.CLAUDE_MAX_TOKENS || 'not set'}")`);
   }
 
   /**
@@ -73,7 +76,7 @@ export class ClaudeAnalyzer {
     // カスタムパスが指定されている場合
     if (customPath && existsSync(customPath)) {
       this.promptTemplate = readFileSync(customPath, 'utf-8');
-      console.log(`[Claude] カスタムプロンプト読み込み: ${customPath}`);
+      this.logger.info(`カスタムプロンプト読み込み: ${customPath}`);
       return;
     }
 
@@ -83,9 +86,9 @@ export class ClaudeAnalyzer {
 
     if (existsSync(defaultPath)) {
       this.promptTemplate = readFileSync(defaultPath, 'utf-8');
-      console.log(`[Claude] プロンプトテンプレート読み込み: ${defaultPath}`);
+      this.logger.info(`プロンプトテンプレート読み込み: ${defaultPath}`);
     } else {
-      console.log('[Claude] デフォルトプロンプトを使用');
+      this.logger.info('デフォルトプロンプトを使用');
     }
   }
 
@@ -100,9 +103,9 @@ export class ClaudeAnalyzer {
       try {
         const content = readFileSync(feedbackPath, 'utf-8');
         this.feedbackExamples = JSON.parse(content);
-        console.log(`[Claude] フィードバック読み込み: ${this.feedbackExamples.length}件の修正例`);
+        this.logger.info(`フィードバック読み込み: ${this.feedbackExamples.length}件の修正例`);
       } catch (e) {
-        console.error(`[Claude] フィードバック読み込みエラー: ${feedbackPath}`);
+        this.logger.error(`フィードバック読み込みエラー: ${feedbackPath}`);
       }
     }
   }
@@ -127,7 +130,7 @@ export class ClaudeAnalyzer {
    * 50%割引が適用される
    */
   async analyzeBatch(messages: ChatworkMessage[], roleResolver?: (accountId: number) => ResolvedRole): Promise<AnalyzedMessage[]> {
-    console.log(`[Claude] Batch API処理開始: ${messages.length}件のメッセージ`);
+    this.logger.info(`Batch API処理開始: ${messages.length}件のメッセージ`);
 
     // Batch API用のリクエストを作成
     const requests = messages.map((msg, index) => ({
@@ -143,7 +146,7 @@ export class ClaudeAnalyzer {
     }));
 
     // Batch作成
-    console.log(`[Claude] Batch作成リクエスト送信中...`);
+    this.logger.info(`Batch作成リクエスト送信中...`);
     const batchCreateStartTime = Date.now();
 
     const batch = await this.client.beta.messages.batches.create({
@@ -151,18 +154,18 @@ export class ClaudeAnalyzer {
     });
 
     const batchCreateElapsed = Date.now() - batchCreateStartTime;
-    console.log(`[Claude] Batch作成完了: ${batch.id} (作成時間: ${batchCreateElapsed}ms)`);
-    console.log(`[Claude] ステータス: ${batch.processing_status}`);
-    console.log(`[Claude] リクエスト数: ${requests.length}件`);
+    this.logger.info(`Batch作成完了: ${batch.id} (作成時間: ${batchCreateElapsed}ms)`);
+    this.logger.info(`ステータス: ${batch.processing_status}`);
+    this.logger.info(`リクエスト数: ${requests.length}件`);
 
     // created_atとexpires_atを表示
     if (batch.created_at) {
       const createdAt = new Date(batch.created_at);
-      console.log(`[Claude] 作成日時: ${createdAt.toLocaleString('ja-JP')}`);
+      this.logger.info(`作成日時: ${createdAt.toLocaleString('ja-JP')}`);
     }
     if (batch.expires_at) {
       const expiresAt = new Date(batch.expires_at);
-      console.log(`[Claude] 有効期限: ${expiresAt.toLocaleString('ja-JP')}`);
+      this.logger.info(`有効期限: ${expiresAt.toLocaleString('ja-JP')}`);
     }
 
     // Batch完了を待機
@@ -185,7 +188,7 @@ export class ClaudeAnalyzer {
     }
 
     // 結果をパース
-    console.log(`[Claude] 結果を取得中...`);
+    this.logger.info(`結果を取得中...`);
     const analyzed: AnalyzedMessage[] = [];
     let parseErrorCount = 0;
     let processedCount = 0;
@@ -201,7 +204,7 @@ export class ClaudeAnalyzer {
             const date = messageDateMap.get(result.custom_id);
 
             if (!messageId || !date) {
-              console.error(`[Claude] custom_id ${result.custom_id} に対応するメッセージが見つかりません`);
+              this.logger.error(`custom_id ${result.custom_id} に対応するメッセージが見つかりません`);
               parseErrorCount++;
               continue;
             }
@@ -232,7 +235,7 @@ export class ClaudeAnalyzer {
             for (const item of items) {
               // 必須フィールドのバリデーション（message_idは不要）
               if (!item.versatility || !item.category) {
-                console.warn(`[Claude] 必須フィールド不足をスキップ: ${result.custom_id}`, item);
+                this.logger.warn(`必須フィールド不足をスキップ: ${result.custom_id}`, item);
                 parseErrorCount++;
                 continue;
               }
@@ -264,36 +267,36 @@ export class ClaudeAnalyzer {
               suggestion = '\n  💡 対処方法: JSONパースに失敗しました。応答内容を確認してください';
             }
 
-            console.error(`\n[Claude] ❌ JSON parse error for ${result.custom_id}`);
-            console.error(`[Claude] Error type: ${errorType}`);
-            console.error(`[Claude] Error: ${errorMsg}`);
-            console.error(`[Claude] Response length: ${content.text.length} chars`);
-            console.error(`[Claude] Current max_tokens: ${currentMaxTokens} (env var: "${process.env.CLAUDE_MAX_TOKENS || 'not set'}")${suggestion}`);
-            console.error(`[Claude] Raw response (first 1000 chars):\n${content.text.substring(0, 1000)}`);
+            this.logger.error(`\n❌ JSON parse error for ${result.custom_id}`);
+            this.logger.error(`Error type: ${errorType}`);
+            this.logger.error(`Error: ${errorMsg}`, error);
+            this.logger.error(`Response length: ${content.text.length} chars`);
+            this.logger.error(`Current max_tokens: ${currentMaxTokens} (env var: "${process.env.CLAUDE_MAX_TOKENS || 'not set'}")${suggestion}`);
+            this.logger.error(`Raw response (first 1000 chars):\n${content.text.substring(0, 1000)}`);
 
             if (content.text.length > 1000) {
-              console.error(`[Claude] Raw response (last 500 chars):\n${content.text.substring(content.text.length - 500)}`);
+              this.logger.error(`Raw response (last 500 chars):\n${content.text.substring(content.text.length - 500)}`);
             }
-            console.error(''); // 空行
+            this.logger.error(''); // 空行
           }
         }
       } else if (result.result.type === 'errored') {
         parseErrorCount++;
-        console.error(`[Claude] API error for ${result.custom_id}: ${result.result.error.error.type}`);
+        this.logger.error(`API error for ${result.custom_id}: ${result.result.error.error.type}`);
         if ('message' in result.result.error.error) {
-          console.error(`[Claude] Error message: ${result.result.error.error.message}`);
+          this.logger.error(`Error message: ${result.result.error.error.message}`);
         }
       } else {
         parseErrorCount++;
-        console.error(`[Claude] Unexpected result type for ${result.custom_id}: ${result.result.type}`);
+        this.logger.error(`Unexpected result type for ${result.custom_id}: ${result.result.type}`);
       }
     }
 
     if (parseErrorCount > 0) {
-      console.warn(`\n[警告] ${parseErrorCount}/${processedCount}件の処理に失敗しました`);
+      this.logger.warn(`\n${parseErrorCount}/${processedCount}件の処理に失敗しました`);
     }
 
-    console.log(`[Claude] 分析完了: ${analyzed.length}件`);
+    this.logger.info(`分析完了: ${analyzed.length}件`);
     return analyzed;
   }
 
@@ -302,8 +305,8 @@ export class ClaudeAnalyzer {
    * 通常価格だが、高速（数秒〜数分）
    */
   async analyzeRealtime(messages: ChatworkMessage[], roleResolver?: (accountId: number) => ResolvedRole): Promise<AnalyzedMessage[]> {
-    console.log(`[Claude] Realtime API処理開始: ${messages.length}件のメッセージ`);
-    console.log(`[Claude] 並列実行数: 5件ずつ`);
+    this.logger.info(`Realtime API処理開始: ${messages.length}件のメッセージ`);
+    this.logger.info(`並列実行数: 5件ずつ`);
 
     const analyzed: AnalyzedMessage[] = [];
     let parseErrorCount = 0;
@@ -317,7 +320,7 @@ export class ClaudeAnalyzer {
       const batchNum = Math.floor(i / CONCURRENCY) + 1;
       const totalBatches = Math.ceil(messages.length / CONCURRENCY);
 
-      console.log(`[Claude] バッチ ${batchNum}/${totalBatches} 処理中 (${batch.length}件)...`);
+      this.logger.info(`バッチ ${batchNum}/${totalBatches} 処理中 (${batch.length}件)...`);
 
       const promises = batch.map(async (msg) => {
         try {
@@ -365,7 +368,7 @@ export class ClaudeAnalyzer {
               for (const item of items) {
                 // 必須フィールドチェック（message_idは不要）
                 if (!item.versatility || !item.category) {
-                  console.warn(`[Claude] 必須フィールド不足をスキップ: ${msg.message_id}`, item);
+                  this.logger.warn(`必須フィールド不足をスキップ: ${msg.message_id}`, item);
                   continue;
                 }
 
@@ -401,22 +404,22 @@ export class ClaudeAnalyzer {
                 suggestion = '\n  💡 対処方法: JSONパースに失敗しました。応答内容を確認してください';
               }
 
-              console.error(`\n[Claude] ❌ JSON parse error for message ${msg.message_id}`);
-              console.error(`[Claude] Error type: ${errorType}`);
-              console.error(`[Claude] Parse error: ${errorMsg}`);
-              console.error(`[Claude] Response length: ${content.text.length} chars`);
-              console.error(`[Claude] Current max_tokens: ${currentMaxTokens} (env var: "${process.env.CLAUDE_MAX_TOKENS || 'not set'}")${suggestion}`);
-              console.error(`[Claude] Raw response (first 1000 chars):\n${content.text.substring(0, 1000)}`);
+              this.logger.error(`\n❌ JSON parse error for message ${msg.message_id}`);
+              this.logger.error(`Error type: ${errorType}`);
+              this.logger.error(`Parse error: ${errorMsg}`, error);
+              this.logger.error(`Response length: ${content.text.length} chars`);
+              this.logger.error(`Current max_tokens: ${currentMaxTokens} (env var: "${process.env.CLAUDE_MAX_TOKENS || 'not set'}")${suggestion}`);
+              this.logger.error(`Raw response (first 1000 chars):\n${content.text.substring(0, 1000)}`);
 
               if (content.text.length > 1000) {
-                console.error(`[Claude] Raw response (last 500 chars):\n${content.text.substring(content.text.length - 500)}`);
+                this.logger.error(`Raw response (last 500 chars):\n${content.text.substring(content.text.length - 500)}`);
               }
-              console.error(''); // 空行
+              this.logger.error(''); // 空行
               return { success: false, messageId: msg.message_id, error: parseError };
             }
           }
         } catch (e) {
-          console.error(`[Claude] API error for message ${msg.message_id}: ${e instanceof Error ? e.message : String(e)}`);
+          this.logger.error(`API error for message ${msg.message_id}: ${e instanceof Error ? e.message : String(e)}`);
           return { success: false, messageId: msg.message_id, error: e };
         }
         return { success: false, messageId: msg.message_id };
@@ -440,14 +443,14 @@ export class ClaudeAnalyzer {
       // 進捗表示
       const progress = Math.min(i + CONCURRENCY, messages.length);
       const elapsedSec = Math.floor((Date.now() - startTime) / 1000);
-      console.log(`[Claude] 進捗: ${progress}/${messages.length}件 (経過: ${elapsedSec}秒)`);
+      this.logger.info(`進捗: ${progress}/${messages.length}件 (経過: ${elapsedSec}秒)`);
     }
 
     const totalElapsedSec = Math.floor((Date.now() - startTime) / 1000);
-    console.log(`[Claude] 処理完了: ${analyzed.length}件 (総時間: ${totalElapsedSec}秒)`);
+    this.logger.info(`処理完了: ${analyzed.length}件 (総時間: ${totalElapsedSec}秒)`);
 
     if (parseErrorCount > 0) {
-      console.warn(`\n[警告] ${parseErrorCount}/${messages.length}件の処理に失敗しました`);
+      this.logger.warn(`\n${parseErrorCount}/${messages.length}件の処理に失敗しました`);
     }
 
     return analyzed;
@@ -458,10 +461,10 @@ export class ClaudeAnalyzer {
    */
   async analyze(messages: ChatworkMessage[], roleResolver?: (accountId: number) => ResolvedRole): Promise<AnalyzedMessage[]> {
     if (this.apiMode === 'realtime') {
-      console.log('[Claude] API種別: Realtime API (高速、通常価格)');
+      this.logger.info('API種別: Realtime API (高速、通常価格)');
       return this.analyzeRealtime(messages, roleResolver);
     } else {
-      console.log('[Claude] API種別: Batch API (50%割引、処理時間: 数分〜24時間)');
+      this.logger.info('API種別: Batch API (50%割引、処理時間: 数分〜24時間)');
       return this.analyzeBatch(messages, roleResolver);
     }
   }
@@ -483,14 +486,14 @@ export class ClaudeAnalyzer {
                          batch.request_counts.canceled +
                          batch.request_counts.expired;
 
-    console.log(`[Claude] Batch処理待機開始 (合計: ${totalRequests}件)`);
-    console.log(`[Claude] 初期ステータス: ${batch.processing_status}`);
-    console.log(`[Claude] 詳細: processing=${batch.request_counts.processing}, succeeded=${batch.request_counts.succeeded}, errored=${batch.request_counts.errored}`);
+    this.logger.info(`Batch処理待機開始 (合計: ${totalRequests}件)`);
+    this.logger.info(`初期ステータス: ${batch.processing_status}`);
+    this.logger.info(`詳細: processing=${batch.request_counts.processing}, succeeded=${batch.request_counts.succeeded}, errored=${batch.request_counts.errored}`);
 
     // expires_atを表示（24時間後に期限切れ）
     if (batch.expires_at) {
       const expiresAt = new Date(batch.expires_at);
-      console.log(`[Claude] 有効期限: ${expiresAt.toLocaleString('ja-JP')}`);
+      this.logger.info(`有効期限: ${expiresAt.toLocaleString('ja-JP')}`);
     }
 
     let pollCount = 0;
@@ -505,15 +508,15 @@ export class ClaudeAnalyzer {
                                batch.request_counts.canceled +
                                batch.request_counts.expired;
 
-      console.log(`[Claude] 処理中... (完了: ${completedRequests}/${totalRequests}, 経過: ${elapsedMinutes}分)`);
+      this.logger.info(`処理中... (完了: ${completedRequests}/${totalRequests}, 経過: ${elapsedMinutes}分)`);
 
       // タイムアウト警告（一度だけ表示）
       if (!timeoutWarningShown && Date.now() - startTime > TIMEOUT_MS) {
-        console.warn(`\n[警告] Batch処理が30分以上経過しています`);
-        console.warn(`[警告] Batch ID: ${batchId}`);
-        console.warn(`[警告] 現在のステータス: processing=${batch.request_counts.processing}, succeeded=${batch.request_counts.succeeded}, errored=${batch.request_counts.errored}`);
-        console.warn(`[警告] Anthropic Batch APIは通常24時間以内に完了しますが、異常に遅い場合はAPI制限やシステム障害の可能性があります`);
-        console.warn(`[警告] https://status.anthropic.com/ でAPIステータスを確認してください\n`);
+        this.logger.warn(`\nBatch処理が30分以上経過しています`);
+        this.logger.warn(`Batch ID: ${batchId}`);
+        this.logger.warn(`現在のステータス: processing=${batch.request_counts.processing}, succeeded=${batch.request_counts.succeeded}, errored=${batch.request_counts.errored}`);
+        this.logger.warn(`Anthropic Batch APIは通常24時間以内に完了しますが、異常に遅い場合はAPI制限やシステム障害の可能性があります`);
+        this.logger.warn(`https://status.anthropic.com/ でAPIステータスを確認してください\n`);
         timeoutWarningShown = true;
       }
 
@@ -522,11 +525,11 @@ export class ClaudeAnalyzer {
     }
 
     const totalElapsedMinutes = Math.floor((Date.now() - startTime) / 60000);
-    console.log(`\n[Claude] Batch完了: ${batch.processing_status} (処理時間: ${totalElapsedMinutes}分)`);
-    console.log(`[Claude] 成功: ${batch.request_counts.succeeded}, 失敗: ${batch.request_counts.errored}`);
+    this.logger.info(`\nBatch完了: ${batch.processing_status} (処理時間: ${totalElapsedMinutes}分)`);
+    this.logger.info(`成功: ${batch.request_counts.succeeded}, 失敗: ${batch.request_counts.errored}`);
 
     if (batch.request_counts.errored > 0) {
-      console.warn(`[警告] ${batch.request_counts.errored}件のリクエストが失敗しました`);
+      this.logger.warn(`${batch.request_counts.errored}件のリクエストが失敗しました`);
     }
 
     return batch;
