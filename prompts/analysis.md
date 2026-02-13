@@ -123,11 +123,9 @@
 以下のJSON形式で返してください。それ以外は一切出力しないでください。
 
 {
-  "message_id": "{{message_id}}",
   "category": "カテゴリ名",
   "versatility": "high/medium/low/exclude",
   "title": "タイトル",
   "tags": ["タグ1", "タグ2", "タグ3"],
-  "date": "{{date}}",
   "formatted_content": "整形後の内容"
 }

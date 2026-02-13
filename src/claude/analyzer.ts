@@ -10,6 +10,8 @@ const __dirname = dirname(__filename);
 
 // 環境変数から最大トークン数を取得（デフォルト: 2000）
 const MAX_TOKENS_FOR_ANALYSIS = parseInt(process.env.CLAUDE_MAX_TOKENS || '2000', 10);
+console.log(`[Debug] CLAUDE_MAX_TOKENS environment variable: "${process.env.CLAUDE_MAX_TOKENS}"`);
+console.log(`[Debug] Parsed MAX_TOKENS_FOR_ANALYSIS: ${MAX_TOKENS_FOR_ANALYSIS}`);
 
 export interface AnalyzedMessage {
   message_id: string;
@@ -163,7 +165,20 @@ export class ClaudeAnalyzer {
     
     // 結果を取得
     const results = await this.client.beta.messages.batches.results(completedBatch.id);
-    
+
+    // custom_idからmessage_idを抽出するマップを作成
+    const messageIdMap = new Map<string, string>();
+    for (const msg of messages) {
+      messageIdMap.set(`msg_${msg.message_id}`, msg.message_id);
+    }
+
+    // dateを生成するマップを作成
+    const messageDateMap = new Map<string, string>();
+    for (const msg of messages) {
+      const date = new Date(msg.send_time * 1000).toISOString();
+      messageDateMap.set(`msg_${msg.message_id}`, date);
+    }
+
     // 結果をパース
     console.log(`[Claude] 結果を取得中...`);
     const analyzed: AnalyzedMessage[] = [];
@@ -176,6 +191,16 @@ export class ClaudeAnalyzer {
         const content = result.result.message.content[0];
         if (content.type === 'text') {
           try {
+            // custom_idからmessage_idを取得
+            const messageId = messageIdMap.get(result.custom_id);
+            const date = messageDateMap.get(result.custom_id);
+
+            if (!messageId || !date) {
+              console.error(`[Claude] custom_id ${result.custom_id} に対応するメッセージが見つかりません`);
+              parseErrorCount++;
+              continue;
+            }
+
             // JSONを抽出してパース（複数パターンに対応）
             let jsonText = content.text.trim();
 
@@ -200,13 +225,19 @@ export class ClaudeAnalyzer {
             const items = Array.isArray(parsed) ? parsed : [parsed];
 
             for (const item of items) {
-              // 必須フィールドのバリデーション
-              if (!item.versatility || !item.category || !item.message_id) {
+              // 必須フィールドのバリデーション（message_idは不要）
+              if (!item.versatility || !item.category) {
                 console.warn(`[Claude] 必須フィールド不足をスキップ: ${result.custom_id}`, item);
                 parseErrorCount++;
                 continue;
               }
-              analyzed.push(item as AnalyzedMessage);
+
+              // メタデータを追加
+              analyzed.push({
+                ...item,
+                message_id: messageId,
+                date: date
+              } as AnalyzedMessage);
             }
           } catch (e) {
             parseErrorCount++;
@@ -231,7 +262,7 @@ export class ClaudeAnalyzer {
             console.error(`[Claude] Error type: ${errorType}`);
             console.error(`[Claude] Error: ${errorMsg}`);
             console.error(`[Claude] Response length: ${content.text.length} chars`);
-            console.error(`[Claude] Current max_tokens: ${MAX_TOKENS_FOR_ANALYSIS}${suggestion}`);
+            console.error(`[Claude] Current max_tokens: ${MAX_TOKENS_FOR_ANALYSIS} (env var: "${process.env.CLAUDE_MAX_TOKENS || 'not set'}")${suggestion}`);
             console.error(`[Claude] Raw response (first 1000 chars):\n${content.text.substring(0, 1000)}`);
 
             if (content.text.length > 1000) {
@@ -319,15 +350,25 @@ export class ClaudeAnalyzer {
               // 配列形式の応答に対応（1つのメッセージから複数の知見を抽出する場合）
               const items = Array.isArray(parsed) ? parsed : [parsed];
 
+              // メタデータを準備
+              const messageId = msg.message_id;
+              const date = new Date(msg.send_time * 1000).toISOString();
+
               // 必須フィールドのバリデーション
               const validItems: AnalyzedMessage[] = [];
               for (const item of items) {
-                // 必須フィールドチェック
-                if (!item.versatility || !item.category || !item.message_id) {
+                // 必須フィールドチェック（message_idは不要）
+                if (!item.versatility || !item.category) {
                   console.warn(`[Claude] 必須フィールド不足をスキップ: ${msg.message_id}`, item);
                   continue;
                 }
-                validItems.push(item as AnalyzedMessage);
+
+                // メタデータを追加
+                validItems.push({
+                  ...item,
+                  message_id: messageId,
+                  date: date
+                } as AnalyzedMessage);
               }
 
               if (validItems.length === 0) {
@@ -357,7 +398,7 @@ export class ClaudeAnalyzer {
               console.error(`[Claude] Error type: ${errorType}`);
               console.error(`[Claude] Parse error: ${errorMsg}`);
               console.error(`[Claude] Response length: ${content.text.length} chars`);
-              console.error(`[Claude] Current max_tokens: ${MAX_TOKENS_FOR_ANALYSIS}${suggestion}`);
+              console.error(`[Claude] Current max_tokens: ${MAX_TOKENS_FOR_ANALYSIS} (env var: "${process.env.CLAUDE_MAX_TOKENS || 'not set'}")${suggestion}`);
               console.error(`[Claude] Raw response (first 1000 chars):\n${content.text.substring(0, 1000)}`);
 
               if (content.text.length > 1000) {
@@ -589,12 +630,10 @@ ${feedbackText}
 以下のJSON形式で返してください。それ以外は一切出力しないでください。
 
 {
-  "message_id": "${message.message_id}",
   "category": "カテゴリ名",
   "versatility": "high/medium/low/exclude",
   "title": "タイトル",
   "tags": ["タグ1", "タグ2", "タグ3"],
-  "date": "${date}",
   "formatted_content": "整形後の内容"
 }`;
   }
