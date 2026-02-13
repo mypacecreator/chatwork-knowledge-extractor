@@ -227,7 +227,7 @@ ${roomInfo}${modelInfo}生成日時: ${now.toLocaleString('ja-JP')}
         }
       }
     } catch (e) {
-      this.logger.warn(`メッセージキャッシュの読み込みに失敗`, e);
+      this.logger.warn(`メッセージキャッシュの読み込みに失敗 (roomId: ${roomId})`, e);
     }
     return messageMap;
   }
