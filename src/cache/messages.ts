@@ -3,6 +3,7 @@ import { existsSync } from 'fs';
 import { join, dirname } from 'path';
 import type { ChatworkMessage } from '../chatwork/client.js';
 import type { AnalyzedMessage } from '../claude/analyzer.js';
+import { Logger } from '../utils/logger.js';
 
 export interface MessageCache {
   roomId: string;
@@ -14,9 +15,11 @@ export interface MessageCache {
 
 export class MessageCacheManager {
   private cacheDir: string;
+  private logger: Logger;
 
   constructor(cacheDir: string = './cache') {
     this.cacheDir = cacheDir;
+    this.logger = new Logger('Cache');
   }
 
   private getCachePath(roomId: string): string {
@@ -37,7 +40,7 @@ export class MessageCacheManager {
       const content = await readFile(cachePath, 'utf-8');
       return JSON.parse(content) as MessageCache;
     } catch (e) {
-      console.error(`[Cache] 読み込みエラー: ${e}`);
+      this.logger.error(`読み込みエラー: ${e}`);
       return null;
     }
   }
@@ -75,7 +78,7 @@ export class MessageCacheManager {
     };
 
     await writeFile(cachePath, JSON.stringify(cache, null, 2), 'utf-8');
-    console.log(`[Cache] 保存完了: ${messages.length}件 (${cachePath})`);
+    this.logger.info(`保存完了: ${messages.length}件 (${cachePath})`);
   }
 
   /**
@@ -99,7 +102,7 @@ export class MessageCacheManager {
 
     const cachePath = this.getCachePath(roomId);
     await writeFile(cachePath, JSON.stringify(cache, null, 2), 'utf-8');
-    console.log(`[Cache] 分析済みとしてマーク: ${messageIds.length}件`);
+    this.logger.info(`分析済みとしてマーク: ${messageIds.length}件`);
   }
 
   /**
@@ -127,7 +130,7 @@ export class MessageCacheManager {
     merged.sort((a, b) => b.send_time - a.send_time);
 
     if (addedCount > 0) {
-      console.log(`[Cache] ${addedCount}件の新規メッセージを追加`);
+      this.logger.info(`${addedCount}件の新規メッセージを追加`);
     }
 
     return merged;
@@ -140,7 +143,7 @@ export class MessageCacheManager {
     const cache = await this.load(roomId);
 
     if (!cache) {
-      console.log('[Cache] キャッシュなし（初回実行）');
+      this.logger.info('キャッシュなし（初回実行）');
       return;
     }
 
@@ -149,15 +152,15 @@ export class MessageCacheManager {
     const analyzedCount = cache.analyzedMessageIds?.length || 0;
     const unanalyzedCount = cache.messages.length - analyzedCount;
 
-    console.log(`[Cache] 統計情報:`);
-    console.log(`  - 保存件数: ${cache.messages.length}件`);
-    console.log(`  - 分析済み: ${analyzedCount}件 / 未分析: ${unanalyzedCount}件`);
-    console.log(`  - 最終更新: ${cache.lastUpdated}`);
+    this.logger.info(`統計情報:`);
+    this.logger.info(`  - 保存件数: ${cache.messages.length}件`);
+    this.logger.info(`  - 分析済み: ${analyzedCount}件 / 未分析: ${unanalyzedCount}件`);
+    this.logger.info(`  - 最終更新: ${cache.lastUpdated}`);
     if (oldestMsg) {
-      console.log(`  - 最古: ${new Date(oldestMsg.send_time * 1000).toLocaleString('ja-JP')}`);
+      this.logger.info(`  - 最古: ${new Date(oldestMsg.send_time * 1000).toLocaleString('ja-JP')}`);
     }
     if (newestMsg) {
-      console.log(`  - 最新: ${new Date(newestMsg.send_time * 1000).toLocaleString('ja-JP')}`);
+      this.logger.info(`  - 最新: ${new Date(newestMsg.send_time * 1000).toLocaleString('ja-JP')}`);
     }
   }
 
@@ -199,7 +202,7 @@ export class MessageCacheManager {
     };
 
     await writeFile(cachePath, JSON.stringify(cacheData, null, 2), 'utf-8');
-    console.log(`[Cache] 分析結果を保存: ${merged.length}件 (新規${results.length}件)`);
+    this.logger.info(`分析結果を保存: ${merged.length}件 (新規${results.length}件)`);
   }
 
   /**
@@ -224,7 +227,7 @@ export class MessageCacheManager {
       const content = await readFile(cachePath, 'utf-8');
       return JSON.parse(content) as AnalysisCache;
     } catch (e) {
-      console.error(`[Cache] 分析結果読み込みエラー: ${e}`);
+      this.logger.error(`分析結果読み込みエラー: ${e}`);
       return null;
     }
   }
@@ -258,11 +261,11 @@ export class MessageCacheManager {
     const results = await this.loadAnalysisResults(roomId);
 
     if (results.length === 0) {
-      console.log('[Cache] 分析結果キャッシュなし');
+      this.logger.info('分析結果キャッシュなし');
       return;
     }
 
-    console.log(`[Cache] 分析結果キャッシュ: ${results.length}件`);
+    this.logger.info(`分析結果キャッシュ: ${results.length}件`);
   }
 }
 

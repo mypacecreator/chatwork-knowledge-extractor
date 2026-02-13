@@ -1,5 +1,6 @@
 import fetch from 'node-fetch';
 import { MessageCacheManager } from '../cache/messages.js';
+import { Logger } from '../utils/logger.js';
 
 export interface ChatworkMessage {
   message_id: string;
@@ -32,10 +33,12 @@ export class ChatworkClient {
   private apiToken: string;
   private baseUrl = 'https://api.chatwork.com/v2';
   private cacheManager: MessageCacheManager;
+  private logger: Logger;
 
   constructor(apiToken: string, cacheDir: string = './cache') {
     this.apiToken = apiToken;
     this.cacheManager = new MessageCacheManager(cacheDir);
+    this.logger = new Logger('Chatwork');
   }
 
   /**
@@ -77,7 +80,7 @@ export class ChatworkClient {
     // レート制限情報をログ出力
     const remaining = response.headers.get('x-ratelimit-remaining');
     const limit = response.headers.get('x-ratelimit-limit');
-    console.log(`[Chatwork API] レート制限: ${remaining}/${limit}`);
+    this.logger.info(`API レート制限: ${remaining}/${limit}`);
 
     if (!response.ok) {
       // 204 No Content は空配列を返す
@@ -112,9 +115,9 @@ export class ChatworkClient {
     const isFirstRun = !existingCache;
 
     if (isFirstRun) {
-      console.log(`[Chatwork] 初回実行: 最新100件を取得します`);
+      this.logger.info(`初回実行: 最新100件を取得します`);
     } else {
-      console.log(`[Chatwork] 差分取得: キャッシュに${existingCache.messages.length}件あり`);
+      this.logger.info(`差分取得: キャッシュに${existingCache.messages.length}件あり`);
     }
 
     // メッセージ取得
@@ -123,7 +126,7 @@ export class ChatworkClient {
     const newMessages = await this.getMessages(roomId, force);
     const apiMessageCount = newMessages.length;
 
-    console.log(`[Chatwork] API取得: ${apiMessageCount}件`);
+    this.logger.info(`API取得: ${apiMessageCount}件`);
 
     // 100件制限の警告チェック
     if (apiMessageCount >= 100) {
@@ -156,11 +159,11 @@ export class ChatworkClient {
 
     // maxMessagesで制限
     if (allMessages.length > maxMessages) {
-      console.log(`[Chatwork] ${maxMessages}件に制限`);
+      this.logger.info(`${maxMessages}件に制限`);
       allMessages = allMessages.slice(0, maxMessages);
     }
 
-    console.log(`[Chatwork] 合計: ${allMessages.length}件`);
+    this.logger.info(`合計: ${allMessages.length}件`);
 
     return {
       messages: allMessages,
@@ -201,7 +204,7 @@ export class ChatworkClient {
       // 数字（日数）の場合
       const days = parseInt(extractFrom, 10);
       if (isNaN(days)) {
-        console.warn(`[警告] EXTRACT_FROM の形式が不正です: ${extractFrom}`);
+        this.logger.warn(`EXTRACT_FROM の形式が不正です: ${extractFrom}`);
         return { messages, description: '全期間' };
       }
       const filtered = this.filterByDateRange(messages, days);

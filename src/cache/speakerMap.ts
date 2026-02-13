@@ -3,6 +3,7 @@ import { existsSync } from 'fs';
 import { readFile, writeFile, mkdir } from 'fs/promises';
 import { ChatworkMessage } from '../chatwork/client.js';
 import { ResolvedRole } from '../team/profiles.js';
+import { Logger } from '../utils/logger.js';
 
 /**
  * 発言者情報
@@ -28,9 +29,11 @@ export interface SpeakerMapCache {
  */
 export class SpeakerMapManager {
   private cacheDir: string;
+  private logger: Logger;
 
   constructor(cacheDir: string = './cache') {
     this.cacheDir = cacheDir;
+    this.logger = new Logger('SpeakerMap');
   }
 
   private getCachePath(roomId: string): string {
@@ -50,7 +53,7 @@ export class SpeakerMapManager {
       const content = await readFile(cachePath, 'utf-8');
       return JSON.parse(content) as SpeakerMapCache;
     } catch (e) {
-      console.error(`[SpeakerMap] 読み込みエラー: ${e}`);
+      this.logger.error(`読み込みエラー: ${e}`);
       return null;
     }
   }
@@ -92,7 +95,7 @@ export class SpeakerMapManager {
     }
 
     await writeFile(cachePath, JSON.stringify(cacheData, null, 2), 'utf-8');
-    console.log(`[SpeakerMap] 保存完了: ${Object.keys(newSpeakers).length}件 (合計: ${Object.keys(merged).length}件)`);
+    this.logger.info(`保存完了: ${Object.keys(newSpeakers).length}件 (合計: ${Object.keys(merged).length}件)`);
   }
 
   /**

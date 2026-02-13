@@ -2,8 +2,8 @@ import type { AnalyzedMessage } from '../claude/analyzer.js';
 import { writeFile } from 'fs/promises';
 import { mkdir } from 'fs/promises';
 import { dirname } from 'path';
-import { anonymizeSpeakers } from './anonymize.js';
 import { SpeakerMapManager } from '../cache/speakerMap.js';
+import { Logger } from '../utils/logger.js';
 
 export interface FormatOptions {
   roomName?: string;
@@ -13,6 +13,12 @@ export interface FormatOptions {
 }
 
 export class MarkdownFormatter {
+  private logger: Logger;
+
+  constructor() {
+    this.logger = new Logger('Markdown');
+  }
+
   /**
    * 分析結果をMarkdown形式で出力
    */
@@ -47,7 +53,7 @@ export class MarkdownFormatter {
     // ファイル出力
     await mkdir(dirname(outputPath), { recursive: true });
     await writeFile(outputPath, markdown, 'utf-8');
-    console.log(`[Markdown] 出力完了: ${outputPath}`);
+    this.logger.info(`出力完了: ${outputPath}`);
   }
 
   /**
@@ -66,7 +72,7 @@ export class MarkdownFormatter {
     return messages.map(item => {
       const speakerInfo = speakerMap.speakers[item.message_id];
       if (!speakerInfo) {
-        console.warn(`[Formatter] message_id ${item.message_id} のSpeaker情報が見つかりません。デフォルト値を使用します。`);
+        this.logger.warn(`message_id ${item.message_id} のSpeaker情報が見つかりません。デフォルト値を使用します。`);
         return { ...item, speaker: '不明' };
       }
       return { ...item, speaker: speakerInfo.speaker_name };
@@ -109,7 +115,7 @@ export class MarkdownFormatter {
     return messages.map(item => {
       const speakerInfo = speakerMap.speakers[item.message_id];
       if (!speakerInfo) {
-        console.warn(`[Formatter] message_id ${item.message_id} のSpeaker情報が見つかりません。デフォルト値を使用します。`);
+        this.logger.warn(`message_id ${item.message_id} のSpeaker情報が見つかりません。デフォルト値を使用します。`);
         return { ...item, speaker: '不明' };
       }
 

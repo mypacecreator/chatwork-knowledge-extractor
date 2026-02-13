@@ -1,7 +1,6 @@
 import type { AnalyzedMessage } from '../claude/analyzer.js';
 import { writeFile, mkdir } from 'fs/promises';
 import { dirname } from 'path';
-import { anonymizeSpeakers } from './anonymize.js';
 import { SpeakerMapManager } from '../cache/speakerMap.js';
 
 export interface FormatOptions {

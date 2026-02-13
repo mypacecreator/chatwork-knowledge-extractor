@@ -1,6 +1,7 @@
 import { readFileSync, existsSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
+import { Logger } from '../utils/logger.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -29,8 +30,10 @@ const ROLE_LABELS: Record<TeamRole, string> = {
 
 export class TeamProfileManager {
   private profiles: Map<string, TeamProfile> = new Map();
+  private logger: Logger;
 
   constructor(configPath?: string) {
+    this.logger = new Logger('TeamProfile');
     this.load(configPath);
   }
 
@@ -38,7 +41,7 @@ export class TeamProfileManager {
     // カスタムパスが指定されている場合
     if (customPath) {
       if (!existsSync(customPath)) {
-        throw new Error(`[TeamProfile] 指定されたファイルが見つかりません: ${customPath}`);
+        throw new Error(`指定されたファイルが見つかりません: ${customPath}`);
       }
       this.parseFile(customPath);
       return;
@@ -51,7 +54,7 @@ export class TeamProfileManager {
     if (existsSync(defaultPath)) {
       this.parseFile(defaultPath);
     } else {
-      console.log('[TeamProfile] チームプロファイル未設定（全員memberとして扱います）');
+      this.logger.info('チームプロファイル未設定（全員memberとして扱います）');
     }
   }
 
@@ -60,14 +63,14 @@ export class TeamProfileManager {
     try {
       content = readFileSync(filePath, 'utf-8');
     } catch (e) {
-      throw new Error(`[TeamProfile] ファイル読み込みエラー: ${filePath} - ${e instanceof Error ? e.message : e}`);
+      throw new Error(`ファイル読み込みエラー: ${filePath} - ${e instanceof Error ? e.message : e}`);
     }
 
     let config: unknown;
     try {
       config = JSON.parse(content);
     } catch (e) {
-      throw new Error(`[TeamProfile] JSONパースエラー: ${filePath} - ${e instanceof Error ? e.message : e}`);
+      throw new Error(`JSONパースエラー: ${filePath} - ${e instanceof Error ? e.message : e}`);
     }
 
     // profiles フィールドの存在・型チェック
@@ -78,20 +81,20 @@ export class TeamProfileManager {
       (config as Record<string, unknown>).profiles === null ||
       Array.isArray((config as Record<string, unknown>).profiles)
     ) {
-      throw new Error(`[TeamProfile] 不正なJSON構造: "profiles" オブジェクトが必要です (${filePath})`);
+      throw new Error(`不正なJSON構造: "profiles" オブジェクトが必要です (${filePath})`);
     }
 
     const profiles = (config as TeamProfilesConfig).profiles;
 
     for (const [accountId, profile] of Object.entries(profiles)) {
       if (!this.isValidRole(profile.role)) {
-        console.warn(`[TeamProfile] 不正なロール "${profile.role}" (account_id: ${accountId})、memberとして扱います`);
+        this.logger.warn(`不正なロール "${profile.role}" (account_id: ${accountId})、memberとして扱います`);
         profile.role = 'member';
       }
       this.profiles.set(accountId, profile);
     }
 
-    console.log(`[TeamProfile] ${this.profiles.size}名のプロファイル読み込み完了`);
+    this.logger.info(`${this.profiles.size}名のプロファイル読み込み完了`);
   }
 
   private isValidRole(role: string): role is TeamRole {
