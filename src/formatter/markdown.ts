@@ -254,7 +254,7 @@ ${item.formatted_content}
     if (!isAnonymized && messageMap) {
       const originalMessage = messageMap.get(item.message_id);
       if (originalMessage) {
-        block += `元発言:（メッセージID: ${item.message_id}）\n\n${this.formatAsQuotedBlock(originalMessage)}\n\n`;
+        block += `元発言 (メッセージID: ${item.message_id}):\n\n${this.formatAsQuotedBlock(originalMessage)}\n\n`;
       }
     }
 
