@@ -254,7 +254,7 @@ ${item.formatted_content}
     if (!isAnonymized && messageMap) {
       const originalMessage = messageMap.get(item.message_id);
       if (originalMessage) {
-        block += `元発言（メッセージID: ${item.message_id}）:\n\n${this.formatAsQuotedBlock(originalMessage)}\n\n`;
+        block += `元発言:（メッセージID: ${item.message_id}）\n\n${this.formatAsQuotedBlock(originalMessage)}\n\n`;
       }
     }
 
@@ -265,7 +265,9 @@ ${item.formatted_content}
    * テキストをMarkdownの引用ブロック形式に変換
    */
   private formatAsQuotedBlock(text: string): string {
-    return `> ${text.replace(/\n/g, '\n> ')}`;
+    // 末尾の改行を除去してから引用符を付ける
+    const trimmed = text.replace(/\n+$/, '');
+    return `> ${trimmed.replace(/\n/g, '\n> ')}`;
   }
 
   /**
