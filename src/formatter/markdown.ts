@@ -279,6 +279,7 @@ ${item.formatted_content}
       'member': 'Member',
       'junior': 'Junior'
     };
-    return labelMap[role] || role;
+    // 未知のロールは空文字を返す（一貫性を保つため）
+    return labelMap[role] || '';
   }
 }
