@@ -4,12 +4,25 @@ import { ClaudeAnalyzer, type AnalyzedMessage } from './claude/analyzer.js';
 import { MarkdownFormatter } from './formatter/markdown.js';
 import { JSONFormatter } from './formatter/json.js';
 import { MessageCacheManager } from './cache/messages.js';
+import { SpeakerMapManager } from './cache/speakerMap.js';
 import { TeamProfileManager } from './team/profiles.js';
 import { filterMessages } from './utils/messageFilter.js';
 import { join } from 'path';
 
 // 環境変数読み込み
 dotenv.config();
+
+/**
+ * 環境変数から正の整数をパース（基数10、NaN対策）
+ * @param value 環境変数の値
+ * @param defaultValue パース失敗時のデフォルト値
+ * @returns パース結果（無効な値の場合はdefaultValue）
+ */
+function parsePositiveInt(value: string | undefined, defaultValue: number): number {
+  if (!value) return defaultValue;
+  const parsed = Number.parseInt(value, 10);
+  return Number.isNaN(parsed) || parsed < 0 ? defaultValue : parsed;
+}
 
 async function main() {
   // コマンドライン引数チェック
@@ -41,9 +54,16 @@ async function main() {
 
   // メッセージフィルタ設定（環境変数で上書き可能）
   const filterConfig = {
-    minLength: parseInt(process.env.FILTER_MIN_LENGTH || '5'),
-    maxLength: parseInt(process.env.FILTER_MAX_LENGTH || '500'),
+    minLength: parsePositiveInt(process.env.FILTER_MIN_LENGTH, 10),
+    maxLength: parsePositiveInt(process.env.FILTER_MAX_LENGTH, 300),
+    boilerplateThreshold: parsePositiveInt(process.env.FILTER_BOILERPLATE_THRESHOLD, 50),
   };
+
+  // フィルタ設定のバリデーション
+  if (filterConfig.minLength > filterConfig.maxLength) {
+    console.warn(`警告: FILTER_MIN_LENGTH(${filterConfig.minLength}) > FILTER_MAX_LENGTH(${filterConfig.maxLength}). maxLengthをminLengthに合わせます`);
+    filterConfig.maxLength = Math.max(filterConfig.minLength, filterConfig.maxLength);
+  }
 
   // Claude API種別の選択
   const claudeApiMode = (process.env.CLAUDE_API_MODE || 'batch') as 'batch' | 'realtime';
@@ -64,6 +84,7 @@ async function main() {
   // 警告を収集
   const allWarnings: string[] = [];
   const cacheManager = new MessageCacheManager();
+  const speakerMapManager = new SpeakerMapManager();
   const teamProfileManager = !isReanalyze ? new TeamProfileManager(teamProfilesPath) : null;
 
   try {
@@ -142,6 +163,10 @@ async function main() {
       console.log(`未分析メッセージ: ${unanalyzedMessages.length}件\n`);
 
       if (unanalyzedMessages.length > 0) {
+        const roleResolver = teamProfileManager!.hasProfiles()
+          ? (accountId: number) => teamProfileManager!.resolveRole(accountId)
+          : undefined;
+
         // メッセージの事前フィルタリング（知見が含まれない可能性が高いものを除外）
         console.log('事前フィルタリング中...');
         const { filtered: filteredMessages, stats } = filterMessages(unanalyzedMessages, filterConfig);
@@ -157,6 +182,9 @@ async function main() {
           }
           console.log('');
         }
+
+        // 発言者マッピングを保存（フィルタリング後のメッセージで保存）
+        await speakerMapManager.save(roomId, filteredMessages, roleResolver);
 
         if (filteredMessages.length > 0) {
           // Step 2: Claude APIで分析（フィルタリング済みメッセージのみ）
@@ -207,12 +235,22 @@ async function main() {
       }
 
       console.log(`汎用性フィルタ: ${outputVersatility.join(', ')} のみ出力`);
+      console.log(`[Debug] フィルタリング前: ${allResults.length}件`);
+
+      // デバッグ: versatility分布を表示
+      const versatilityDist = allResults.reduce((acc, item) => {
+        acc[item.versatility] = (acc[item.versatility] || 0) + 1;
+        return acc;
+      }, {} as Record<string, number>);
+      console.log(`[Debug] versatility分布:`, versatilityDist);
 
       knowledgeItems = allResults.filter(
           item => item.versatility !== 'exclude'
               && item.category !== '除外対象'
               && outputVersatility.includes(item.versatility)
       );
+
+      console.log(`[Debug] フィルタリング後: ${knowledgeItems.length}件`);
 
       // usedModelがまだ設定されていない場合（新規分析なし）、キャッシュから取得
       if (!usedModel) {
@@ -261,7 +299,7 @@ async function main() {
     await markdownFormatter.format(knowledgeItems, internalMdPath, {
       ...formatOptions,
       anonymize: false
-    });
+    }, speakerMapManager, roomId);
 
     // === 外部用Markdown出力（匿名化） ===
     console.log(`\n${stepPrefix2} 外部用出力中（匿名化）...\n`);
@@ -270,7 +308,7 @@ async function main() {
     await markdownFormatter.format(knowledgeItems, externalMdPath, {
       ...formatOptions,
       anonymize: true
-    });
+    }, speakerMapManager, roomId);
 
     // === 外部用JSON出力（匿名化） ===
     const externalJsonPath = join(externalDir, `${baseFilename}.json`);
@@ -278,7 +316,7 @@ async function main() {
     await jsonFormatter.format(knowledgeItems, externalJsonPath, {
       ...formatOptions,
       anonymize: true
-    });
+    }, speakerMapManager, roomId);
 
     // 完了
     console.log('\n=== 完了 ===');

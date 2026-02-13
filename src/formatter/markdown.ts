@@ -3,6 +3,7 @@ import { writeFile } from 'fs/promises';
 import { mkdir } from 'fs/promises';
 import { dirname } from 'path';
 import { anonymizeSpeakers } from './anonymize.js';
+import { SpeakerMapManager } from '../cache/speakerMap.js';
 
 export interface FormatOptions {
   roomName?: string;
@@ -15,11 +16,22 @@ export class MarkdownFormatter {
   /**
    * 分析結果をMarkdown形式で出力
    */
-  async format(messages: AnalyzedMessage[], outputPath: string, options: FormatOptions = {}): Promise<void> {
-    // 匿名化が必要な場合、コピーして発言者を置換
-    let items = messages;
+  async format(
+    messages: AnalyzedMessage[],
+    outputPath: string,
+    options: FormatOptions = {},
+    speakerMapManager: SpeakerMapManager,
+    roomId: string
+  ): Promise<void> {
+    let items: (AnalyzedMessage & { speaker: string })[];
+
+    // SpeakerMapから発言者情報を取得（必須）
     if (options.anonymize) {
-      items = anonymizeSpeakers(messages);
+      // External用: message_idベースで機械的に匿名化
+      items = await this.anonymizeWithMessageId(messages, speakerMapManager, roomId);
+    } else {
+      // Internal用: SpeakerMapから実名を取得
+      items = await this.applySpeakerNames(messages, speakerMapManager, roomId);
     }
 
     // カテゴリ別にグループ化
@@ -39,10 +51,80 @@ export class MarkdownFormatter {
   }
 
   /**
+   * message_idベースでSpeakerMapから実名を取得
+   */
+  private async applySpeakerNames(
+    messages: AnalyzedMessage[],
+    speakerMapManager: SpeakerMapManager,
+    roomId: string
+  ): Promise<(AnalyzedMessage & { speaker: string })[]> {
+    const speakerMap = await speakerMapManager.load(roomId);
+    if (!speakerMap) {
+      throw new Error(`[Formatter] SpeakerMapが見つかりません: speakers_${roomId}.json`);
+    }
+
+    return messages.map(item => {
+      const speakerInfo = speakerMap.speakers[item.message_id];
+      if (!speakerInfo) {
+        console.warn(`[Formatter] message_id ${item.message_id} のSpeaker情報が見つかりません。デフォルト値を使用します。`);
+        return { ...item, speaker: '不明' };
+      }
+      return { ...item, speaker: speakerInfo.speaker_name };
+    });
+  }
+
+  /**
+   * message_idベースで機械的に匿名化
+   * account_idごとに一意な匿名ID（発言者1, 発言者2...）を割り当て
+   */
+  private async anonymizeWithMessageId(
+    messages: AnalyzedMessage[],
+    speakerMapManager: SpeakerMapManager,
+    roomId: string
+  ): Promise<(AnalyzedMessage & { speaker: string })[]> {
+    const speakerMap = await speakerMapManager.load(roomId);
+    if (!speakerMap) {
+      throw new Error(`[Formatter] SpeakerMapが見つかりません: speakers_${roomId}.json`);
+    }
+
+    // account_id → 匿名IDのマッピングを作成
+    const accountIdToAnonymousId = new Map<number, string>();
+    let counter = 1;
+
+    // 一貫性のため、account_idでソート
+    const allAccountIds = new Set<number>();
+    for (const msg of messages) {
+      const speakerInfo = speakerMap.speakers[msg.message_id];
+      if (speakerInfo) {
+        allAccountIds.add(speakerInfo.account_id);
+      }
+    }
+
+    const sortedAccountIds = Array.from(allAccountIds).sort((a, b) => a - b);
+    for (const accountId of sortedAccountIds) {
+      accountIdToAnonymousId.set(accountId, `発言者${counter}`);
+      counter++;
+    }
+
+    return messages.map(item => {
+      const speakerInfo = speakerMap.speakers[item.message_id];
+      if (!speakerInfo) {
+        console.warn(`[Formatter] message_id ${item.message_id} のSpeaker情報が見つかりません。デフォルト値を使用します。`);
+        return { ...item, speaker: '不明' };
+      }
+
+      return {
+        ...item,
+        speaker: accountIdToAnonymousId.get(speakerInfo.account_id)!
+      };
+    });
+  }
+
+  /**
    * カテゴリ別にグループ化
    */
-  private groupByCategory(messages: AnalyzedMessage[]): Record<string, AnalyzedMessage[]> {
-    const grouped: Record<string, AnalyzedMessage[]> = {};
+  private groupByCategory(messages: (AnalyzedMessage & { speaker: string })[]): Record<string, (AnalyzedMessage & { speaker: string })[]> {
+    const grouped: Record<string, (AnalyzedMessage & { speaker: string })[]> = {};
     
     for (const msg of messages) {
       if (!grouped[msg.category]) {
@@ -67,9 +149,19 @@ export class MarkdownFormatter {
    */
   private generateHeader(options: FormatOptions): string {
     const now = new Date();
-    const roomInfo = options.roomName
-      ? `対象ルーム: ${options.roomName}${options.roomId ? ` (ID: ${options.roomId})` : ''}\n`
-      : '';
+
+    // ルーム名の表示を anonymize フラグで制御
+    let roomInfo = '';
+    if (options.roomName || options.roomId) {
+      if (options.anonymize) {
+        // 匿名化時はIDのみ表示
+        roomInfo = options.roomId ? `対象ルーム: ID ${options.roomId}\n` : '';
+      } else {
+        // 内部用は実名表示
+        roomInfo = `対象ルーム: ${options.roomName}${options.roomId ? ` (ID: ${options.roomId})` : ''}\n`;
+      }
+    }
+
     const modelInfo = options.model ? `分析モデル: ${options.model}\n` : '';
 
     return `# Chatwork知見まとめ
@@ -84,7 +176,7 @@ ${roomInfo}${modelInfo}生成日時: ${now.toLocaleString('ja-JP')}
   /**
    * カテゴリセクション生成
    */
-  private generateCategorySection(category: string, items: AnalyzedMessage[]): string {
+  private generateCategorySection(category: string, items: (AnalyzedMessage & { speaker: string })[]): string {
     const emoji = this.getCategoryEmoji(category);
     let section = `## ${emoji} ${category}\n\n`;
 
@@ -99,7 +191,7 @@ ${roomInfo}${modelInfo}生成日時: ${now.toLocaleString('ja-JP')}
   /**
    * 個別メッセージブロック生成
    */
-  private generateMessageBlock(item: AnalyzedMessage): string {
+  private generateMessageBlock(item: AnalyzedMessage & { speaker: string }): string {
     return `### [汎用性: ${item.versatility}] ${item.title}
 
 - **発言者**: ${item.speaker}

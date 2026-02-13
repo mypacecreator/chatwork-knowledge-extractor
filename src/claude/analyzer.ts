@@ -8,14 +8,18 @@ import type { ResolvedRole, TeamRole } from '../team/profiles.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
+// 環境変数から最大トークン数を取得（デフォルト: 2000）
+// 注: dotenv.config() より前にモジュールが評価される可能性があるため、関数として定義
+function getMaxTokens(): number {
+  return parseInt(process.env.CLAUDE_MAX_TOKENS || '2000', 10);
+}
+
 export interface AnalyzedMessage {
   message_id: string;
   category: string;
   versatility: 'high' | 'medium' | 'low' | 'exclude';
   title: string;
   tags: string[];
-  speaker: string;
-  speaker_role?: string;
   date: string;
   formatted_content: string;
 }
@@ -49,6 +53,10 @@ export class ClaudeAnalyzer {
     this.apiMode = options.apiMode || 'batch'; // デフォルトはbatch（後方互換性）
     this.loadPromptTemplate(options.promptTemplatePath);
     this.loadFeedback(options.feedbackPath);
+
+    // デバッグ: max_tokens設定を表示
+    const maxTokens = getMaxTokens();
+    console.log(`[Claude] Max tokens for analysis: ${maxTokens} (env: "${process.env.CLAUDE_MAX_TOKENS || 'not set'}")`);
   }
 
   /**
@@ -126,7 +134,7 @@ export class ClaudeAnalyzer {
       custom_id: `msg_${msg.message_id}`,
       params: {
         model: this.model,
-        max_tokens: 400, // 1000→400に削減（JSON出力は通常200-300トークン）
+        max_tokens: getMaxTokens(),
         messages: [{
           role: 'user' as const,
           content: this.createAnalysisPrompt(msg, roleResolver)
@@ -162,7 +170,20 @@ export class ClaudeAnalyzer {
     
     // 結果を取得
     const results = await this.client.beta.messages.batches.results(completedBatch.id);
-    
+
+    // custom_idからmessage_idを抽出するマップを作成
+    const messageIdMap = new Map<string, string>();
+    for (const msg of messages) {
+      messageIdMap.set(`msg_${msg.message_id}`, msg.message_id);
+    }
+
+    // dateを生成するマップを作成
+    const messageDateMap = new Map<string, string>();
+    for (const msg of messages) {
+      const date = new Date(msg.send_time * 1000).toISOString();
+      messageDateMap.set(`msg_${msg.message_id}`, date);
+    }
+
     // 結果をパース
     console.log(`[Claude] 結果を取得中...`);
     const analyzed: AnalyzedMessage[] = [];
@@ -175,20 +196,85 @@ export class ClaudeAnalyzer {
         const content = result.result.message.content[0];
         if (content.type === 'text') {
           try {
-            // マークダウンのコードブロックからJSONを抽出
-            let jsonText = content.text.trim();
-            const jsonMatch = jsonText.match(/```(?:json)?\s*([\s\S]*?)```/);
-            if (jsonMatch) {
-              jsonText = jsonMatch[1].trim();
+            // custom_idからmessage_idを取得
+            const messageId = messageIdMap.get(result.custom_id);
+            const date = messageDateMap.get(result.custom_id);
+
+            if (!messageId || !date) {
+              console.error(`[Claude] custom_id ${result.custom_id} に対応するメッセージが見つかりません`);
+              parseErrorCount++;
+              continue;
             }
 
+            // JSONを抽出してパース（複数パターンに対応）
+            let jsonText = content.text.trim();
+
+            // パターン1: ```json ... ``` 形式
+            let jsonMatch = jsonText.match(/```json\s*([\s\S]*?)```/);
+            if (jsonMatch) {
+              jsonText = jsonMatch[1].trim();
+            } else {
+              // パターン2: ``` ... ``` 形式（json指定なし）
+              jsonMatch = jsonText.match(/```\s*([\s\S]*?)```/);
+              if (jsonMatch) {
+                jsonText = jsonMatch[1].trim();
+              }
+            }
+
+            // JSON文字列がまだ```で始まっている場合は除去（念のため）
+            jsonText = jsonText.replace(/^```(json)?/gm, '').replace(/```$/gm, '').trim();
+
             const parsed = JSON.parse(jsonText);
-            analyzed.push(parsed);
+
+            // 配列形式の応答に対応（1つのメッセージから複数の知見を抽出する場合）
+            const items = Array.isArray(parsed) ? parsed : [parsed];
+
+            for (const item of items) {
+              // 必須フィールドのバリデーション（message_idは不要）
+              if (!item.versatility || !item.category) {
+                console.warn(`[Claude] 必須フィールド不足をスキップ: ${result.custom_id}`, item);
+                parseErrorCount++;
+                continue;
+              }
+
+              // メタデータを追加
+              analyzed.push({
+                ...item,
+                message_id: messageId,
+                date: date
+              } as AnalyzedMessage);
+            }
           } catch (e) {
             parseErrorCount++;
-            console.error(`[Claude] JSON parse error for ${result.custom_id}`);
-            console.error(`[Claude] Error: ${e instanceof Error ? e.message : String(e)}`);
-            console.error(`[Claude] Raw response (first 500 chars): ${content.text.substring(0, 500)}`);
+            const error = e instanceof Error ? e : new Error(String(e));
+            const errorMsg = error.message;
+
+            // エラー種別の判定と対処方法の提示
+            let errorType = 'unknown';
+            let suggestion = '';
+
+            const currentMaxTokens = getMaxTokens();
+            if (errorMsg.includes('Unterminated string') || errorMsg.includes('Unexpected end of JSON')) {
+              errorType = 'truncated';
+              suggestion = `\n  💡 対処方法: .envファイルで CLAUDE_MAX_TOKENS を増やしてください\n     現在値: ${currentMaxTokens}\n     推奨値: ${currentMaxTokens + 500}`;
+            } else if (errorMsg.includes('Unexpected token')) {
+              errorType = 'format';
+              suggestion = '\n  💡 対処方法: JSON形式が不正です。プロンプトの指示を確認してください';
+            } else {
+              suggestion = '\n  💡 対処方法: JSONパースに失敗しました。応答内容を確認してください';
+            }
+
+            console.error(`\n[Claude] ❌ JSON parse error for ${result.custom_id}`);
+            console.error(`[Claude] Error type: ${errorType}`);
+            console.error(`[Claude] Error: ${errorMsg}`);
+            console.error(`[Claude] Response length: ${content.text.length} chars`);
+            console.error(`[Claude] Current max_tokens: ${currentMaxTokens} (env var: "${process.env.CLAUDE_MAX_TOKENS || 'not set'}")${suggestion}`);
+            console.error(`[Claude] Raw response (first 1000 chars):\n${content.text.substring(0, 1000)}`);
+
+            if (content.text.length > 1000) {
+              console.error(`[Claude] Raw response (last 500 chars):\n${content.text.substring(content.text.length - 500)}`);
+            }
+            console.error(''); // 空行
           }
         }
       } else if (result.result.type === 'errored') {
@@ -237,7 +323,7 @@ export class ClaudeAnalyzer {
         try {
           const response = await this.client.messages.create({
             model: this.model,
-            max_tokens: 400,
+            max_tokens: getMaxTokens(),
             messages: [{
               role: 'user',
               content: this.createAnalysisPrompt(msg, roleResolver)
@@ -266,11 +352,66 @@ export class ClaudeAnalyzer {
 
             try {
               const parsed = JSON.parse(jsonText);
-              return { success: true, data: parsed, messageId: msg.message_id };
+
+              // 配列形式の応答に対応（1つのメッセージから複数の知見を抽出する場合）
+              const items = Array.isArray(parsed) ? parsed : [parsed];
+
+              // メタデータを準備
+              const messageId = msg.message_id;
+              const date = new Date(msg.send_time * 1000).toISOString();
+
+              // 必須フィールドのバリデーション
+              const validItems: AnalyzedMessage[] = [];
+              for (const item of items) {
+                // 必須フィールドチェック（message_idは不要）
+                if (!item.versatility || !item.category) {
+                  console.warn(`[Claude] 必須フィールド不足をスキップ: ${msg.message_id}`, item);
+                  continue;
+                }
+
+                // メタデータを追加
+                validItems.push({
+                  ...item,
+                  message_id: messageId,
+                  date: date
+                } as AnalyzedMessage);
+              }
+
+              if (validItems.length === 0) {
+                return { success: false, messageId: msg.message_id, error: new Error('No valid items after validation') };
+              }
+
+              return { success: true, data: validItems, messageId: msg.message_id };
             } catch (parseError) {
-              console.error(`[Claude] JSON parse error for message ${msg.message_id}`);
-              console.error(`[Claude] Parse error: ${parseError instanceof Error ? parseError.message : String(parseError)}`);
-              console.error(`[Claude] Raw response (first 500 chars): ${content.text.substring(0, 500)}`);
+              const error = parseError instanceof Error ? parseError : new Error(String(parseError));
+              const errorMsg = error.message;
+
+              // エラー種別の判定と対処方法の提示
+              let errorType = 'unknown';
+              let suggestion = '';
+              const currentMaxTokens = getMaxTokens();
+
+              if (errorMsg.includes('Unterminated string') || errorMsg.includes('Unexpected end of JSON')) {
+                errorType = 'truncated';
+                suggestion = `\n  💡 対処方法: .envファイルで CLAUDE_MAX_TOKENS を増やしてください\n     現在値: ${currentMaxTokens}\n     推奨値: ${currentMaxTokens + 500}`;
+              } else if (errorMsg.includes('Unexpected token')) {
+                errorType = 'format';
+                suggestion = '\n  💡 対処方法: JSON形式が不正です。プロンプトの指示を確認してください';
+              } else {
+                suggestion = '\n  💡 対処方法: JSONパースに失敗しました。応答内容を確認してください';
+              }
+
+              console.error(`\n[Claude] ❌ JSON parse error for message ${msg.message_id}`);
+              console.error(`[Claude] Error type: ${errorType}`);
+              console.error(`[Claude] Parse error: ${errorMsg}`);
+              console.error(`[Claude] Response length: ${content.text.length} chars`);
+              console.error(`[Claude] Current max_tokens: ${currentMaxTokens} (env var: "${process.env.CLAUDE_MAX_TOKENS || 'not set'}")${suggestion}`);
+              console.error(`[Claude] Raw response (first 1000 chars):\n${content.text.substring(0, 1000)}`);
+
+              if (content.text.length > 1000) {
+                console.error(`[Claude] Raw response (last 500 chars):\n${content.text.substring(content.text.length - 500)}`);
+              }
+              console.error(''); // 空行
               return { success: false, messageId: msg.message_id, error: parseError };
             }
           }
@@ -284,8 +425,13 @@ export class ClaudeAnalyzer {
       const results = await Promise.all(promises);
 
       for (const result of results) {
-        if (result.success && 'data' in result) {
-          analyzed.push(result.data);
+        if (result.success && 'data' in result && result.data) {
+          // 配列形式の応答に対応（1つのメッセージから複数の知見）
+          if (Array.isArray(result.data)) {
+            analyzed.push(...result.data);
+          } else {
+            analyzed.push(result.data);
+          }
         } else {
           parseErrorCount++;
         }
@@ -404,7 +550,7 @@ export class ClaudeAnalyzer {
     if (this.promptTemplate) {
       return this.promptTemplate
         .replace(/\{\{message_id\}\}/g, message.message_id)
-        .replace(/\{\{speaker\}\}/g, message.account.name)
+        .replace(/\{\{speaker\}\}/g, roleLabel)  // 実名ではなくロールラベルのみ
         .replace(/\{\{speaker_role\}\}/g, role)
         .replace(/\{\{speaker_role_label\}\}/g, roleLabel)
         .replace(/\{\{role_instruction\}\}/g, roleInstruction)
@@ -421,7 +567,7 @@ ${roleInstruction}
 以下のメッセージを分析し、JSON形式で結果を返してください。
 
 【メッセージ】
-発言者: ${message.account.name} (Role: ${roleLabel})
+発言者ロール: ${roleLabel}
 日時: ${date}
 内容: ${message.body}
 
@@ -491,14 +637,10 @@ ${feedbackText}
 以下のJSON形式で返してください。それ以外は一切出力しないでください。
 
 {
-  "message_id": "${message.message_id}",
   "category": "カテゴリ名",
   "versatility": "high/medium/low/exclude",
   "title": "タイトル",
   "tags": ["タグ1", "タグ2", "タグ3"],
-  "speaker": "${message.account.name}",
-  "speaker_role": "${role}",
-  "date": "${date}",
   "formatted_content": "整形後の内容"
 }`;
   }
