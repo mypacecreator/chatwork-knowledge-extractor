@@ -525,7 +525,7 @@ export class ClaudeAnalyzer {
     }
 
     const totalElapsedMinutes = Math.floor((Date.now() - startTime) / 60000);
-    console.log(`\n[Claude] Batch完了: ${batch.processing_status} (処理時間: ${totalElapsedMinutes}分)`);
+    this.logger.info(`\nBatch完了: ${batch.processing_status} (処理時間: ${totalElapsedMinutes}分)`);
     this.logger.info(`成功: ${batch.request_counts.succeeded}, 失敗: ${batch.request_counts.errored}`);
 
     if (batch.request_counts.errored > 0) {
