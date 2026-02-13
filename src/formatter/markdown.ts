@@ -197,12 +197,39 @@ ${roomInfo}${modelInfo}生成日時: ${now.toLocaleString('ja-JP')}
     const emoji = this.getCategoryEmoji(category);
     let section = `## ${emoji} ${category}\n\n`;
 
+    // パフォーマンス最適化: message_id → 元発言のマップを事前作成
+    let messageMap: Map<string, string> | null = null;
+    if (!isAnonymized && messageCacheManager) {
+      messageMap = await this.createMessageMap(messageCacheManager, roomId);
+    }
+
     for (const item of items) {
-      section += await this.generateMessageBlock(item, isAnonymized, messageCacheManager, roomId);
+      section += await this.generateMessageBlock(item, isAnonymized, messageMap);
       section += '\n---\n\n';
     }
 
     return section;
+  }
+
+  /**
+   * メッセージIDからメッセージ本文へのマップを作成（O(1)ルックアップ用）
+   */
+  private async createMessageMap(
+    messageCacheManager: MessageCacheManager,
+    roomId: string
+  ): Promise<Map<string, string>> {
+    const messageMap = new Map<string, string>();
+    try {
+      const cache = await messageCacheManager.load(roomId);
+      if (cache) {
+        for (const msg of cache.messages) {
+          messageMap.set(msg.message_id, msg.body);
+        }
+      }
+    } catch (e) {
+      this.logger.warn(`メッセージキャッシュの読み込みに失敗`, e);
+    }
+    return messageMap;
   }
 
   /**
@@ -211,8 +238,7 @@ ${roomInfo}${modelInfo}生成日時: ${now.toLocaleString('ja-JP')}
   private async generateMessageBlock(
     item: AnalyzedMessage & { speaker: string },
     isAnonymized: boolean,
-    messageCacheManager: MessageCacheManager | undefined,
-    roomId: string
+    messageMap: Map<string, string> | null
   ): Promise<string> {
     let block = `### [汎用性: ${item.versatility}] ${item.title}
 
@@ -225,34 +251,14 @@ ${item.formatted_content}
 `;
 
     // 内部用の場合のみ、元発言を追加
-    if (!isAnonymized && messageCacheManager) {
-      const originalMessage = await this.getOriginalMessage(item.message_id, messageCacheManager, roomId);
+    if (!isAnonymized && messageMap) {
+      const originalMessage = messageMap.get(item.message_id);
       if (originalMessage) {
         block += `元発言（メッセージID: ${item.message_id}）:\n\n> ${originalMessage.replace(/\n/g, '\n> ')}\n\n`;
       }
     }
 
     return block;
-  }
-
-  /**
-   * 元のメッセージ本文を取得
-   */
-  private async getOriginalMessage(
-    messageId: string,
-    messageCacheManager: MessageCacheManager,
-    roomId: string
-  ): Promise<string | null> {
-    try {
-      const cache = await messageCacheManager.load(roomId);
-      if (!cache) return null;
-      
-      const message = cache.messages.find(m => m.message_id === messageId);
-      return message?.body || null;
-    } catch (e) {
-      this.logger.warn(`元発言の取得に失敗: message_id=${messageId}`, e);
-      return null;
-    }
   }
 
   /**
