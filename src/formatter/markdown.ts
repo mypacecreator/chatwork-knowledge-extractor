@@ -228,7 +228,7 @@ ${item.formatted_content}
     if (!isAnonymized && messageCacheManager) {
       const originalMessage = await this.getOriginalMessage(item.message_id, messageCacheManager, roomId);
       if (originalMessage) {
-        block += `**元発言（メッセージID: ${item.message_id}）:**\n\n> ${originalMessage.replace(/\n/g, '\n> ')}\n\n`;
+        block += `元発言（メッセージID: ${item.message_id}）:\n\n> ${originalMessage.replace(/\n/g, '\n> ')}\n\n`;
       }
     }
 
