@@ -124,9 +124,16 @@ export class MarkdownFormatter {
         return { ...item, speaker: '不明' };
       }
 
+      // 匿名IDを取得
+      const anonymousId = accountIdToAnonymousId.get(speakerInfo.account_id)!;
+      
+      // ロール情報があれば表示
+      const roleLabel = this.getRoleLabel(speakerInfo.speaker_role);
+      const speaker = roleLabel ? `${anonymousId} (${roleLabel})` : anonymousId;
+
       return {
         ...item,
-        speaker: accountIdToAnonymousId.get(speakerInfo.account_id)!
+        speaker
       };
     });
   }
