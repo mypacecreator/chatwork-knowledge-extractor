@@ -102,7 +102,10 @@ export class JSONFormatter {
         this.logger.warn(`message_id ${item.message_id} のSpeaker情報が見つかりません。デフォルト値を使用します。`);
         return { ...item, speaker: '不明' };
       }
-      return { ...item, speaker: speakerInfo.speaker_name };
+      // ロール情報があれば表示
+      const roleLabel = this.getRoleLabel(speakerInfo.speaker_role);
+      const speaker = roleLabel ? `${speakerInfo.speaker_name} (${roleLabel})` : speakerInfo.speaker_name;
+      return { ...item, speaker };
     });
   }
 
@@ -146,11 +149,32 @@ export class JSONFormatter {
         return { ...item, speaker: '不明' };
       }
 
+      // 匿名IDを取得
+      const anonymousId = accountIdToAnonymousId.get(speakerInfo.account_id)!;
+      
+      // ロール情報があれば表示
+      const roleLabel = this.getRoleLabel(speakerInfo.speaker_role);
+      const speaker = roleLabel ? `${anonymousId} (${roleLabel})` : anonymousId;
+
       return {
         ...item,
-        speaker: accountIdToAnonymousId.get(speakerInfo.account_id)!
+        speaker
       };
     });
+  }
+
+  /**
+   * ロールをラベル表示に変換
+   */
+  private getRoleLabel(role: string | undefined): string {
+    if (!role) return '';
+    const labelMap: Record<string, string> = {
+      'senior': 'Senior',
+      'member': 'Member',
+      'junior': 'Junior'
+    };
+    // 未知のロールは空文字を返す（一貫性を保つため）
+    return labelMap[role] || '';
   }
 
 }

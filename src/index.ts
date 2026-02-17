@@ -301,7 +301,7 @@ async function main() {
     await markdownFormatter.format(knowledgeItems, internalMdPath, {
       ...formatOptions,
       anonymize: false
-    }, speakerMapManager, roomId);
+    }, speakerMapManager, roomId, cacheManager);
 
     // === 外部用Markdown出力（匿名化） ===
     logger.info(`\n${stepPrefix2} 外部用出力中（匿名化）...\n`);
