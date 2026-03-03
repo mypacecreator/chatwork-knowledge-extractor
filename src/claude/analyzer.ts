@@ -149,9 +149,16 @@ export class ClaudeAnalyzer {
     this.logger.info(`Batch作成リクエスト送信中...`);
     const batchCreateStartTime = Date.now();
 
-    const batch = await this.client.beta.messages.batches.create({
-      requests
-    });
+    let batch: Anthropic.Beta.Messages.BetaMessageBatch;
+    try {
+      batch = await this.client.beta.messages.batches.create({
+        requests
+      });
+    } catch (e) {
+      const errorMsg = this.formatApiError(e);
+      this.logger.error(`\n❌ Batch API作成に失敗しました:\n${errorMsg}`);
+      throw e;
+    }
 
     const batchCreateElapsed = Date.now() - batchCreateStartTime;
     this.logger.info(`Batch作成完了: ${batch.id} (作成時間: ${batchCreateElapsed}ms)`);
@@ -172,7 +179,14 @@ export class ClaudeAnalyzer {
     const completedBatch = await this.waitForBatchCompletion(batch.id);
     
     // 結果を取得
-    const results = await this.client.beta.messages.batches.results(completedBatch.id);
+    let results: AsyncIterable<Anthropic.Beta.Messages.BetaMessageBatchIndividualResponse>;
+    try {
+      results = await this.client.beta.messages.batches.results(completedBatch.id);
+    } catch (e) {
+      const errorMsg = this.formatApiError(e);
+      this.logger.error(`\n❌ Batch結果の取得に失敗しました:\n${errorMsg}`);
+      throw e;
+    }
 
     // custom_idからmessage_idを抽出するマップを作成
     const messageIdMap = new Map<string, string>();
@@ -419,7 +433,8 @@ export class ClaudeAnalyzer {
             }
           }
         } catch (e) {
-          this.logger.error(`API error for message ${msg.message_id}: ${e instanceof Error ? e.message : String(e)}`);
+          const errorMsg = this.formatApiError(e);
+          this.logger.error(`\n❌ Claude API呼び出しエラー (message ${msg.message_id}):\n${errorMsg}`);
           return { success: false, messageId: msg.message_id, error: e };
         }
         return { success: false, messageId: msg.message_id };
@@ -477,7 +492,14 @@ export class ClaudeAnalyzer {
     const TIMEOUT_MS = 30 * 60 * 1000; // 30分でタイムアウト警告
     const POLLING_INTERVAL_MS = 10000; // 10秒ごとにチェック
 
-    let batch = await this.client.beta.messages.batches.retrieve(batchId);
+    let batch: Anthropic.Beta.Messages.BetaMessageBatch;
+    try {
+      batch = await this.client.beta.messages.batches.retrieve(batchId);
+    } catch (e) {
+      const errorMsg = this.formatApiError(e);
+      this.logger.error(`\n❌ Batchステータス確認に失敗しました:\n${errorMsg}`);
+      throw e;
+    }
 
     // 送信したリクエストの総数を計算（request_countsの合計）
     const totalRequests = batch.request_counts.processing +
@@ -521,7 +543,13 @@ export class ClaudeAnalyzer {
       }
 
       await this.sleep(POLLING_INTERVAL_MS);
-      batch = await this.client.beta.messages.batches.retrieve(batchId);
+      try {
+        batch = await this.client.beta.messages.batches.retrieve(batchId);
+      } catch (e) {
+        const errorMsg = this.formatApiError(e);
+        this.logger.error(`\n❌ Batchステータス確認中にエラーが発生しました:\n${errorMsg}`);
+        throw e;
+      }
     }
 
     const totalElapsedMinutes = Math.floor((Date.now() - startTime) / 60000);
@@ -673,6 +701,67 @@ ${feedbackText}
       default:
         return '';
     }
+  }
+
+  /**
+   * Claude APIエラーをわかりやすいメッセージに変換
+   */
+  private formatApiError(e: unknown): string {
+    if (e instanceof Anthropic.APIConnectionError) {
+      return [
+        'Claude APIへの接続に失敗しました（ネットワークエラー）',
+        '  考えられる原因:',
+        '  - インターネット接続が切れている',
+        '  - Claude APIが一時的に停止している',
+        '  対処方法:',
+        '  - インターネット接続を確認してください',
+        '  - https://status.anthropic.com/ でAPIステータスを確認してください',
+        '  - しばらく待ってから再試行してください',
+      ].join('\n');
+    }
+    if (e instanceof Anthropic.AuthenticationError) {
+      return [
+        'Claude API認証エラー（401 Unauthorized）',
+        '  対処方法:',
+        '  - .envファイルの CLAUDE_API_KEY を確認してください',
+        '  - https://console.anthropic.com/ でAPIキーを確認・再発行してください',
+      ].join('\n');
+    }
+    if (e instanceof Anthropic.PermissionDeniedError) {
+      return [
+        'Claude APIアクセス拒否（403 Forbidden）',
+        '  対処方法:',
+        '  - APIキーに必要な権限があるか確認してください',
+        '  - Batch APIを使用するにはBeta機能へのアクセスが必要な場合があります',
+        '  - https://console.anthropic.com/ でAPIキーの設定を確認してください',
+      ].join('\n');
+    }
+    if (e instanceof Anthropic.RateLimitError) {
+      return [
+        'Claude APIレート制限超過（429 Too Many Requests）',
+        '  対処方法:',
+        '  - しばらく待ってから再試行してください',
+        '  - https://console.anthropic.com/ でAPI使用量を確認してください',
+      ].join('\n');
+    }
+    if (e instanceof Anthropic.InternalServerError) {
+      return [
+        `Claude APIサーバーエラー（HTTP ${e.status}）`,
+        '  Claude APIが一時的に停止またはエラー状態の可能性があります',
+        '  対処方法:',
+        '  - https://status.anthropic.com/ でAPIステータスを確認してください',
+        '  - しばらく待ってから再試行してください',
+      ].join('\n');
+    }
+    if (e instanceof Anthropic.APIStatusError) {
+      return [
+        `Claude APIエラー（HTTP ${e.status}）`,
+        `  エラー内容: ${e.message}`,
+        '  対処方法:',
+        '  - https://status.anthropic.com/ でAPIステータスを確認してください',
+      ].join('\n');
+    }
+    return e instanceof Error ? e.message : String(e);
   }
 
   private sleep(ms: number): Promise<void> {
