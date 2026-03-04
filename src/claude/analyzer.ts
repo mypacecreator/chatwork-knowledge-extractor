@@ -432,7 +432,7 @@ export class ClaudeAnalyzer {
             }
           }
         } catch (e) {
-          const errorMsg = this.formatApiError(e);
+          const errorMsg = formatApiError(e);
           this.logger.error(`\n❌ Claude API呼び出しエラー (message ${msg.message_id}):\n${errorMsg}`, e);
           return { success: false, messageId: msg.message_id, error: e };
         }
