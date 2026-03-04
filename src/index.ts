@@ -364,7 +364,7 @@ async function main() {
 
   } catch (error) {
     if (error instanceof Anthropic.APIConnectionError) {
-      logger.error('\n❌ Claude APIへの接続に失敗しました（ネットワークエラー）');
+      logger.error('\n❌ Claude APIへの接続に失敗しました（ネットワークエラー）', error);
       logger.error('  考えられる原因:');
       logger.error('  - インターネット接続が切れている');
       logger.error('  - Claude APIが一時的に停止している');
@@ -373,28 +373,28 @@ async function main() {
       logger.error('  - https://status.anthropic.com/ でAPIステータスを確認してください');
       logger.error('  - しばらく待ってから再試行してください');
     } else if (error instanceof Anthropic.AuthenticationError) {
-      logger.error('\n❌ Claude API認証エラー（CLAUDE_API_KEY が無効または未設定）');
+      logger.error('\n❌ Claude API認証エラー（CLAUDE_API_KEY が無効または未設定）', error);
       logger.error('  対処方法:');
       logger.error('  - .envファイルの CLAUDE_API_KEY を確認してください');
       logger.error('  - https://console.anthropic.com/ でAPIキーを確認・再発行してください');
     } else if (error instanceof Anthropic.PermissionDeniedError) {
-      logger.error('\n❌ Claude APIアクセス拒否（403 Forbidden）');
+      logger.error('\n❌ Claude APIアクセス拒否（403 Forbidden）', error);
       logger.error('  対処方法:');
       logger.error('  - APIキーに必要な権限があるか確認してください');
       logger.error('  - https://console.anthropic.com/ でAPIキーの設定を確認してください');
     } else if (error instanceof Anthropic.RateLimitError) {
-      logger.error('\n❌ Claude APIのレート制限に達しました（429 Too Many Requests）');
+      logger.error('\n❌ Claude APIのレート制限に達しました（429 Too Many Requests）', error);
       logger.error('  対処方法:');
       logger.error('  - しばらく待ってから再試行してください');
       logger.error('  - https://console.anthropic.com/ でAPI使用量を確認してください');
     } else if (error instanceof Anthropic.InternalServerError) {
-      logger.error(`\n❌ Claude APIサーバーエラー（HTTP ${error.status}）`);
+      logger.error(`\n❌ Claude APIサーバーエラー（HTTP ${error.status}）`, error);
       logger.error('  Claude APIが一時的に停止またはエラー状態の可能性があります');
       logger.error('  対処方法:');
       logger.error('  - https://status.anthropic.com/ でAPIステータスを確認してください');
       logger.error('  - しばらく待ってから再試行してください');
     } else if (error instanceof Anthropic.APIStatusError) {
-      logger.error(`\n❌ Claude APIからエラーレスポンスが返されました（HTTP ${error.status}）`);
+      logger.error(`\n❌ Claude APIからエラーレスポンスが返されました（HTTP ${error.status}）`, error);
       logger.error(`  エラー内容: ${error.message}`);
       logger.error('  対処方法:');
       logger.error('  - https://status.anthropic.com/ でAPIステータスを確認してください');

@@ -155,8 +155,7 @@ export class ClaudeAnalyzer {
         requests
       });
     } catch (e) {
-      const errorMsg = this.formatApiError(e);
-      this.logger.error(`\n❌ Batch API作成に失敗しました:\n${errorMsg}`);
+      this.logger.error('Batch API作成中にエラーが発生しました');
       throw e;
     }
 
@@ -183,8 +182,7 @@ export class ClaudeAnalyzer {
     try {
       results = await this.client.beta.messages.batches.results(completedBatch.id);
     } catch (e) {
-      const errorMsg = this.formatApiError(e);
-      this.logger.error(`\n❌ Batch結果の取得に失敗しました:\n${errorMsg}`);
+      this.logger.error('Batch結果の取得中にエラーが発生しました');
       throw e;
     }
 
@@ -434,7 +432,7 @@ export class ClaudeAnalyzer {
           }
         } catch (e) {
           const errorMsg = this.formatApiError(e);
-          this.logger.error(`\n❌ Claude API呼び出しエラー (message ${msg.message_id}):\n${errorMsg}`);
+          this.logger.error(`\n❌ Claude API呼び出しエラー (message ${msg.message_id}):\n${errorMsg}`, e);
           return { success: false, messageId: msg.message_id, error: e };
         }
         return { success: false, messageId: msg.message_id };
@@ -496,8 +494,7 @@ export class ClaudeAnalyzer {
     try {
       batch = await this.client.beta.messages.batches.retrieve(batchId);
     } catch (e) {
-      const errorMsg = this.formatApiError(e);
-      this.logger.error(`\n❌ Batchステータス確認に失敗しました:\n${errorMsg}`);
+      this.logger.error('Batchステータス確認中にエラーが発生しました');
       throw e;
     }
 
@@ -546,8 +543,7 @@ export class ClaudeAnalyzer {
       try {
         batch = await this.client.beta.messages.batches.retrieve(batchId);
       } catch (e) {
-        const errorMsg = this.formatApiError(e);
-        this.logger.error(`\n❌ Batchステータス確認中にエラーが発生しました:\n${errorMsg}`);
+        this.logger.error('Batchポーリング中にエラーが発生しました');
         throw e;
       }
     }
