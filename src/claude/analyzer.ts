@@ -183,7 +183,7 @@ export class ClaudeAnalyzer {
     try {
       results = await this.client.beta.messages.batches.results(completedBatch.id);
     } catch (e) {
-      this.logger.error('Batch結果の取得中にエラーが発生しました', e);
+      this.logger.error(`Batch結果の取得中にエラーが発生しました (batch_id: ${completedBatch.id})`, e);
       throw e;
     }
 
@@ -544,7 +544,7 @@ export class ClaudeAnalyzer {
       try {
         batch = await this.client.beta.messages.batches.retrieve(batchId);
       } catch (e) {
-        this.logger.error('Batchポーリング中にエラーが発生しました', e);
+        this.logger.error(`Batchポーリング中にエラーが発生しました (batch_id: ${batchId})`, e);
         throw e;
       }
     }
