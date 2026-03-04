@@ -5,6 +5,7 @@ import { fileURLToPath } from 'url';
 import type { ChatworkMessage } from '../chatwork/client.js';
 import type { ResolvedRole, TeamRole } from '../team/profiles.js';
 import { Logger } from '../utils/logger.js';
+import { formatApiError } from '../utils/apiErrors.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -149,9 +150,15 @@ export class ClaudeAnalyzer {
     this.logger.info(`Batch作成リクエスト送信中...`);
     const batchCreateStartTime = Date.now();
 
-    const batch = await this.client.beta.messages.batches.create({
-      requests
-    });
+    let batch: Anthropic.Beta.Messages.BetaMessageBatch;
+    try {
+      batch = await this.client.beta.messages.batches.create({
+        requests
+      });
+    } catch (e) {
+      this.logger.error('Batch API作成中にエラーが発生しました', e);
+      throw e;
+    }
 
     const batchCreateElapsed = Date.now() - batchCreateStartTime;
     this.logger.info(`Batch作成完了: ${batch.id} (作成時間: ${batchCreateElapsed}ms)`);
@@ -172,7 +179,13 @@ export class ClaudeAnalyzer {
     const completedBatch = await this.waitForBatchCompletion(batch.id);
     
     // 結果を取得
-    const results = await this.client.beta.messages.batches.results(completedBatch.id);
+    let results: AsyncIterable<Anthropic.Beta.Messages.BetaMessageBatchIndividualResponse>;
+    try {
+      results = await this.client.beta.messages.batches.results(completedBatch.id);
+    } catch (e) {
+      this.logger.error(`Batch結果の取得中にエラーが発生しました (batch_id: ${completedBatch.id})`, e);
+      throw e;
+    }
 
     // custom_idからmessage_idを抽出するマップを作成
     const messageIdMap = new Map<string, string>();
@@ -419,7 +432,8 @@ export class ClaudeAnalyzer {
             }
           }
         } catch (e) {
-          this.logger.error(`API error for message ${msg.message_id}: ${e instanceof Error ? e.message : String(e)}`);
+          const errorMsg = formatApiError(e);
+          this.logger.error(`\n❌ Claude API呼び出しエラー (message ${msg.message_id}):\n${errorMsg}`, e);
           return { success: false, messageId: msg.message_id, error: e };
         }
         return { success: false, messageId: msg.message_id };
@@ -477,7 +491,13 @@ export class ClaudeAnalyzer {
     const TIMEOUT_MS = 30 * 60 * 1000; // 30分でタイムアウト警告
     const POLLING_INTERVAL_MS = 10000; // 10秒ごとにチェック
 
-    let batch = await this.client.beta.messages.batches.retrieve(batchId);
+    let batch: Anthropic.Beta.Messages.BetaMessageBatch;
+    try {
+      batch = await this.client.beta.messages.batches.retrieve(batchId);
+    } catch (e) {
+      this.logger.error('Batchステータス確認中にエラーが発生しました', e);
+      throw e;
+    }
 
     // 送信したリクエストの総数を計算（request_countsの合計）
     const totalRequests = batch.request_counts.processing +
@@ -521,7 +541,12 @@ export class ClaudeAnalyzer {
       }
 
       await this.sleep(POLLING_INTERVAL_MS);
-      batch = await this.client.beta.messages.batches.retrieve(batchId);
+      try {
+        batch = await this.client.beta.messages.batches.retrieve(batchId);
+      } catch (e) {
+        this.logger.error(`Batchポーリング中にエラーが発生しました (batch_id: ${batchId})`, e);
+        throw e;
+      }
     }
 
     const totalElapsedMinutes = Math.floor((Date.now() - startTime) / 60000);

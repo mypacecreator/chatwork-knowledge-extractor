@@ -1,4 +1,6 @@
 import dotenv from 'dotenv';
+import Anthropic from '@anthropic-ai/sdk';
+import { formatApiError } from './utils/apiErrors.js';
 import { ChatworkClient } from './chatwork/client.js';
 import { ClaudeAnalyzer, type AnalyzedMessage } from './claude/analyzer.js';
 import { MarkdownFormatter } from './formatter/markdown.js';
@@ -362,8 +364,12 @@ async function main() {
     }
 
   } catch (error) {
-    const errorMsg = error instanceof Error ? error.message : String(error);
-    logger.error(`\nエラーが発生しました: ${errorMsg}`, error);
+    if (error instanceof Anthropic.APIError) {
+      logger.error(`\n❌ ${formatApiError(error)}`, error);
+    } else {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      logger.error(`\nエラーが発生しました: ${errorMsg}`, error);
+    }
     process.exit(1);
   }
 }
